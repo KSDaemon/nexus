@@ -16,6 +16,10 @@ const (
 	OptReason          = "reason"
 	OptReceiveProgress = "receive_progress"
 	OptTimeout         = "timeout"
+	OptPPTScheme       = "ppt_scheme"
+	OptPPTSerializer   = "ppt_serializer"
+	OptPPTCipher       = "ppt_cipher"
+	OptPPTKeyId        = "ppt_keyid"
 
 	// Values for URI matching mode.
 	MatchExact    = "exact"

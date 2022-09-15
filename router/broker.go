@@ -20,6 +20,7 @@ var brokerRole = wamp.Dict{
 		wamp.FeatureSessionMetaAPI:       true,
 		wamp.FeatureSubBlackWhiteListing: true,
 		wamp.FeatureSubMetaAPI:           true,
+		wamp.FeaturePayloadPassthruMode:  true,
 	},
 }
 
