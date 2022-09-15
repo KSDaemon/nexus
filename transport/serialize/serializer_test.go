@@ -283,7 +283,7 @@ func TestMsgpackExtensions(t *testing.T) {
 
 	// Does not work as of commit this commit:
 	// github.com/ugorji/go/codec@@20768e92ac5d44754d3ae811382dea19ec3901c
-	// 
+	//
 	//if !reflect.DeepEqual(msg, m1) {
 	//	t.Fatalf("Values are not equal: expected: %v, got: %v", msg, m1)
 	//}

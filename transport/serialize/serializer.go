@@ -1,7 +1,6 @@
 /*
 Package serialize provides a Serializer interface with implementations that
 encode and decode message data in various ways.
-
 */
 package serialize
 

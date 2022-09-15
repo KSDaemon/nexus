@@ -317,6 +317,7 @@ func (d *dealer) yield(callee *wamp.Session, msg *wamp.Yield) {
 	if callee == nil || msg == nil {
 		panic("dealer.Yield with nil session or message")
 	}
+
 	var again bool
 	progress, _ := msg.Options[wamp.OptProgress].(bool)
 
@@ -681,7 +682,7 @@ func (d *dealer) syncCall(caller *wamp.Session, msg *wamp.Call) {
 
 	// TODO: handle trust levels
 
-	// Check and handle Payload Passthru Mode
+	// Check and handle Payload PassThru Mode
 	// @see https://wamp-proto.org/wamp_latest_ietf.html#name-payload-passthru-mode
 	if pptScheme, _ := msg.Options[wamp.OptPPTScheme].(string); pptScheme != "" {
 
@@ -696,7 +697,7 @@ func (d *dealer) syncCall(caller *wamp.Session, msg *wamp.Call) {
 			//})
 			abortMsg := wamp.Abort{Reason: wamp.ErrProtocolViolation}
 			abortMsg.Details = wamp.Dict{}
-			abortMsg.Details[wamp.OptMessage] = "Peer is trying to use Payload Passthru Mode while it was not announced during HELLO handshake"
+			abortMsg.Details[wamp.OptMessage] = "Peer is trying to use Payload PassThru Mode while it was not announced during HELLO handshake"
 			caller.Peer.Send(&abortMsg)
 			caller.Peer.Close()
 
@@ -997,6 +998,53 @@ func (d *dealer) syncYield(callee *wamp.Session, msg *wamp.Yield, progress, canR
 		d.log.Println("!!! No matching caller for invocation from YIELD:",
 			msg.Request)
 		return false
+	}
+
+	// Check and handle Payload PassThru Mode
+	// @see https://wamp-proto.org/wamp_latest_ietf.html#name-payload-passthru-mode
+	if pptScheme, _ := msg.Options[wamp.OptPPTScheme].(string); pptScheme != "" {
+
+		// Let's check: was ppt feature announced by callee?
+		if !callee.HasFeature(wamp.RoleCallee, wamp.FeaturePayloadPassthruMode) {
+			// It's protocol violation, so we need to abort connection
+			//d.trySend(callee, &wamp.Error{
+			//	Type:    msg.MessageType(),
+			//	Request: msg.Request,
+			//	Details: wamp.Dict{},
+			//	Error:   wamp.ErrProtocolViolation,
+			//})
+			abortMsg := wamp.Abort{Reason: wamp.ErrProtocolViolation}
+			abortMsg.Details = wamp.Dict{}
+			abortMsg.Details[wamp.OptMessage] = "Peer is trying to use Payload PassThru Mode while it was not announced during HELLO handshake"
+			callee.Peer.Send(&abortMsg)
+			callee.Peer.Close()
+
+			return false
+		}
+
+		// Let's check if caller supports this feature
+		if !caller.HasFeature(wamp.RoleCaller, wamp.FeaturePayloadPassthruMode) {
+			d.trySend(callee, &wamp.Error{
+				Type:    msg.MessageType(),
+				Request: msg.Request,
+				Details: wamp.Dict{},
+				Error:   wamp.ErrFeatureNotSupported,
+			})
+			return false
+		}
+
+		// Every side supports PPT feature
+		// Let's fill PPT options for callee
+		details[wamp.OptPPTScheme] = pptScheme
+		if val, ok := msg.Options[wamp.OptPPTSerializer]; ok {
+			details[wamp.OptPPTSerializer] = val.(string)
+		}
+		if val, ok := msg.Options[wamp.OptPPTCipher]; ok {
+			details[wamp.OptPPTCipher] = val.(string)
+		}
+		if val, ok := msg.Options[wamp.OptPPTKeyId]; ok {
+			details[wamp.OptPPTKeyId] = val.(string)
+		}
 	}
 
 	// Send RESULT to the caller.  If the caller is blocked, then make the

@@ -2,7 +2,6 @@
 Package newclient provides a function to create a new client with the socket
 type and serialization specified by command like arguments.  This is used for
 all the sample clients.
-
 */
 package newclient
 
