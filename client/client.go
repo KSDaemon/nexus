@@ -565,6 +565,18 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 		}()
 	}
 
+	// Check and handle Payload PassThru Mode
+	// @see https://wamp-proto.org/wamp_latest_ietf.html#name-payload-passthru-mode
+	if pptScheme, _ := options[wamp.OptPPTScheme].(string); pptScheme != "" {
+		// Let's check: was ppt feature announced by dealer?
+		if !c.sess.HasFeature(wamp.RoleDealer, wamp.FeaturePayloadPassthruMode) {
+			// It's protocol violation, so we need to abort connection
+			// But as we did not send anything to the router
+			// let's just err client
+			return nil, ErrPPTNotSupported
+		}
+	}
+
 	id := c.idGen.Next()
 	c.expectReply(id)
 	c.sess.Send(&wamp.Call{
