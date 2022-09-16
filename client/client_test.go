@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -691,7 +692,7 @@ func (ks *serverKeyStore) AuthRole(authid string) (string, error) {
 
 func TestConnectContext(t *testing.T) {
 	const (
-		expect     = "dial tcp: operation was canceled"
+		expect     = "dial tcp: (.*)operation was canceled"
 		unixExpect = "dial unix /tmp/wamp.sock: operation was canceled"
 	)
 
@@ -704,23 +705,27 @@ func TestConnectContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := ConnectNet(ctx, "http://localhost:9999/ws", cfg)
-	if err == nil || err.Error() != expect {
-		t.Fatalf("expected error %s, got %s", expect, err)
+	resStrMatch, _ := regexp.MatchString(expect, err.Error())
+	if err == nil || !resStrMatch {
+		t.Fatalf("expected error %q, got %q", expect, err)
 	}
 
 	_, err = ConnectNet(ctx, "https://localhost:9999/ws", cfg)
-	if err == nil || err.Error() != expect {
-		t.Fatalf("expected error %s, got %s", expect, err)
+	resStrMatch, _ = regexp.MatchString(expect, err.Error())
+	if err == nil || !resStrMatch {
+		t.Fatalf("expected error %q, got %q", expect, err)
 	}
 
 	_, err = ConnectNet(ctx, "tcp://localhost:9999", cfg)
-	if err == nil || err.Error() != expect {
-		t.Fatalf("expected error %s, got %s", expect, err)
+	resStrMatch, _ = regexp.MatchString(expect, err.Error())
+	if err == nil || !resStrMatch {
+		t.Fatalf("expected error %q, got %q", expect, err)
 	}
 
 	_, err = ConnectNet(ctx, "tcps://localhost:9999", cfg)
-	if err == nil || err.Error() != expect {
-		t.Fatalf("expected error %s, got %s", expect, err)
+	resStrMatch, _ = regexp.MatchString(expect, err.Error())
+	if err == nil || !resStrMatch {
+		t.Fatalf("expected error %q, got %q", expect, err)
 	}
 
 	_, err = ConnectNet(ctx, "unix:///tmp/wamp.sock", cfg)
@@ -1146,8 +1151,16 @@ func TestEventContentSafety(t *testing.T) {
 			return
 		}
 
+		prop, ok := event.ArgumentsKw["prop"]
+		if !ok || prop != "value" {
+			errChan <- fmt.Errorf("expected kwArgs 'prop':'value', got %q", prop)
+			<-gate
+			return
+		}
+
 		event.Details["oops"] = true
 		event.Arguments[0] = "oops"
+		event.ArgumentsKw["prop"] = "oops"
 		errChan <- nil
 		<-gate
 	}
@@ -1160,7 +1173,7 @@ func TestEventContentSafety(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err = pub.Publish(testTopic, nil, wamp.List{"Hello"}, nil); err != nil {
+	if err = pub.Publish(testTopic, nil, wamp.List{"Hello"}, wamp.Dict{"prop": "value"}); err != nil {
 		t.Fatal("Failed to publish:", err)
 	}
 
