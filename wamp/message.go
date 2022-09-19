@@ -414,6 +414,12 @@ type Result struct {
 	ArgumentsKw Dict `wamp:"omitempty"`
 }
 
+// Payload format for using in Payload Passthru Mode
+type PassthruPayload struct {
+	Arguments   List `wamp:"omitempty"`
+	ArgumentsKw Dict `wamp:"omitempty"`
+}
+
 func (msg *Result) MessageType() MessageType { return RESULT }
 
 // ----- Advanced Profile Messages -----
