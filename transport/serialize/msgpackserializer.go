@@ -48,3 +48,23 @@ func (s *MessagePackSerializer) Deserialize(data []byte) (wamp.Message, error) {
 	}
 	return listToMsg(wamp.MessageType(typ), v)
 }
+
+// SerializeDataItem encodes any object/structure into a json payload.
+func (s *MessagePackSerializer) SerializeDataItem(item interface{}) ([]byte, error) {
+	var b []byte
+	return b, codec.NewEncoderBytes(&b, mh).Encode(item)
+}
+
+// DeserializeDataItem decodes a json payload into an object/structure.
+func (s *MessagePackSerializer) DeserializeDataItem(data []byte) (interface{}, error) {
+	var v []interface{}
+	err := codec.NewDecoderBytes(data, mh).Decode(&v)
+	if err != nil {
+		return nil, err
+	}
+	if len(v) == 0 {
+		return nil, errors.New("invalid message")
+	}
+
+	return v, nil
+}

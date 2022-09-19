@@ -12,6 +12,11 @@ import (
 	"github.com/gammazero/nexus/v3/wamp"
 )
 
+var dataItem = []map[string]interface{}{{
+	"Arguments":   []interface{}{1, "2", true},
+	"ArgumentsKw": map[string]interface{}{"prop1": 1, "prop2": "2", "prop3": true},
+}}
+
 func hasRole(details wamp.Dict, role string) bool {
 	_, err := wamp.DictValue(details, []string{"roles", role})
 	return err == nil
@@ -35,6 +40,89 @@ func detailRolesFeatures() wamp.Dict {
 			"caller":     wamp.Dict{},
 		},
 		"nothere": nil,
+	}
+}
+
+func compareDeserializedSerializedDataItem(t *testing.T, item interface{}) {
+	resA, ok := item.([]interface{})
+	if !ok {
+		t.Fatal("desrialization to array error: ")
+	}
+	resT, ok := resA[0].(map[string]interface{})
+	if !ok {
+		t.Fatal("desrialization to hash-table error: ")
+	}
+
+	arr, ok := resT["Arguments"].([]interface{})
+	if !ok {
+		t.Fatal("Arguments property is missed")
+	}
+
+	switch arr[0].(type) {
+	case int64:
+		if arr[0] != int64(1) {
+			t.Fatal("Arguments[0] expected 1 value")
+		}
+	case uint64:
+		if arr[0] != uint64(1) {
+			t.Fatal("Arguments[0] expected 1 value")
+		}
+	case int:
+		if arr[0] != 1 {
+			t.Fatal("Arguments[0] expected 1 value")
+		}
+	default:
+		t.Fatal("Arguments[0] of unexpected type")
+	}
+
+	if arr[1] != "2" {
+		t.Fatal("Arguments[1] expected '2' value")
+	}
+	if arr[2] != true {
+		t.Fatal("Arguments[2] expected true value")
+	}
+
+	mapV, ok := resT["ArgumentsKw"].(map[string]interface{})
+	if !ok {
+		t.Fatal("ArgumentsKw property is missed")
+	}
+
+	val, ok := mapV["prop1"]
+	if !ok {
+		t.Fatal("ArgumentsKw prop1 is missing")
+	}
+
+	switch val.(type) {
+	case int64:
+		if val != int64(1) {
+			t.Fatal("ArgumentsKw prop1 expected 1 value")
+		}
+	case uint64:
+		if val != uint64(1) {
+			t.Fatal("ArgumentsKw prop1 expected 1 value")
+		}
+	case int:
+		if val != 1 {
+			t.Fatal("ArgumentsKw prop1 expected 1 value")
+		}
+	default:
+		t.Fatal("ArgumentsKw prop1 of unexpected type")
+	}
+
+	val, ok = mapV["prop2"]
+	if !ok {
+		t.Fatal("ArgumentsKw prop2 is missing")
+	}
+	if val != string('2') {
+		t.Fatal("expected '2' value")
+	}
+
+	val, ok = mapV["prop3"]
+	if !ok {
+		t.Fatal("ArgumentsKw prop1 is missing")
+	}
+	if val != true {
+		t.Fatal("expected true value")
 	}
 }
 
@@ -89,6 +177,35 @@ func TestJSONDeserialize(t *testing.T) {
 	}
 }
 
+func TestJSONSerializeDataItem(t *testing.T) {
+	s := &JSONSerializer{}
+	b, err := s.SerializeDataItem(dataItem)
+	if err != nil {
+		t.Fatal("Serialization error: ", err)
+	}
+	if len(b) == 0 {
+		t.Fatal("no serialized data")
+	}
+
+	res, err := s.DeserializeDataItem(b)
+	if err != nil {
+		t.Fatal("desrialization error: ", err)
+	}
+
+	compareDeserializedSerializedDataItem(t, res)
+}
+
+func TestJSONDeserializeDataItem(t *testing.T) {
+	s := &JSONSerializer{}
+
+	data := `[{"Arguments":[1,"2",true],"ArgumentsKw":{"prop1":1,"prop2":"2","prop3":true}}]`
+	msg, err := s.DeserializeDataItem([]byte(data))
+	if err != nil {
+		t.Fatalf("Error decoding good data: %s, %s", err, data)
+	}
+	compareDeserializedSerializedDataItem(t, msg)
+}
+
 func TestCBORSerialize(t *testing.T) {
 	details := detailRolesFeatures()
 	hello := &wamp.Hello{Realm: "nexus.realm", Details: details}
@@ -122,23 +239,15 @@ func TestCBORSerialize(t *testing.T) {
 	}
 }
 
-func CBORDeserialize(t *testing.T) {
+func TestCBORDeserialize(t *testing.T) {
 	s := &CBORSerializer{}
 
 	// this is the CBOR representation of the message above
 	data := []byte{
 		0x83, 0x01, 0x6b, 0x6e, 0x65, 0x78, 0x75, 0x73, 0x2e, 0x72, 0x65, 0x61,
-		0x6c, 0x6d, 0xa1, 0x65, 0x72, 0x6f, 0x6c, 0x65, 0x73, 0xa4, 0x6a, 0x73,
-		0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x62, 0x65, 0x72, 0xa0, 0x66, 0x63,
-		0x61, 0x6c, 0x6c, 0x65, 0x65, 0xa0, 0x66, 0x63, 0x61, 0x6c, 0x6c, 0x65,
-		0x72, 0xa0, 0x69, 0x70, 0x75, 0x62, 0x6c, 0x69, 0x73, 0x68, 0x65, 0x72,
-		0xa1, 0x68, 0x66, 0x65, 0x61, 0x74, 0x75, 0x72, 0x65, 0x73, 0xa1, 0x78,
-		0x1d, 0x73, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x62, 0x65, 0x72, 0x5f,
-		0x62, 0x6c, 0x61, 0x63, 0x6b, 0x77, 0x68, 0x69, 0x74, 0x65, 0x5f, 0x6c,
-		0x69, 0x73, 0x74, 0x69, 0x6e, 0x67, 0xf5,
+		0x6c, 0x6d, 0xa0,
 	}
-	details := detailRolesFeatures()
-	expect := &wamp.Hello{Realm: "nexus.realm", Details: details}
+	expect := &wamp.Hello{Realm: "nexus.realm", Details: wamp.Dict{}}
 
 	msg, err := s.Deserialize(data)
 	if err != nil {
@@ -151,6 +260,41 @@ func CBORDeserialize(t *testing.T) {
 	if !reflect.DeepEqual(msg, expect) {
 		t.Fatalf("got %+v, expected %+v", msg, expect)
 	}
+}
+
+func TestCBORSerializeDataItem(t *testing.T) {
+	s := &CBORSerializer{}
+	b, err := s.SerializeDataItem(dataItem)
+	if err != nil {
+		t.Fatal("Serialization error: ", err)
+	}
+	if len(b) == 0 {
+		t.Fatal("no serialized data")
+	}
+
+	res, err := s.DeserializeDataItem(b)
+	if err != nil {
+		t.Fatal("desrialization error: ", err)
+	}
+	compareDeserializedSerializedDataItem(t, res)
+}
+
+func TestCBORDeserializeDataItem(t *testing.T) {
+	s := &CBORSerializer{}
+
+	// this is the CBOR representation of the message above
+	data := []byte{
+		0x81, 0xa2, 0x69, 0x41, 0x72, 0x67, 0x75, 0x6D, 0x65, 0x6E, 0x74,
+		0x73, 0x83, 0x01, 0x61, 0x32, 0xf5, 0x6b, 0x41, 0x72, 0x67, 0x75,
+		0x6D, 0x65, 0x6E, 0x74, 0x73, 0x4B, 0x77, 0xa3, 0x65, 0x70, 0x72,
+		0x6F, 0x70, 0x31, 0x01, 0x65, 0x70, 0x72, 0x6F, 0x70, 0x32, 0x61,
+		0x32, 0x65, 0x70, 0x72, 0x6F, 0x70, 0x33, 0xf5,
+	}
+	msg, err := s.DeserializeDataItem(data)
+	if err != nil {
+		t.Fatalf("Error decoding good data: %s, %x", err, data)
+	}
+	compareDeserializedSerializedDataItem(t, msg)
 }
 
 func TestMessagePackSerialize(t *testing.T) {
@@ -200,6 +344,40 @@ func TestMessagePackDeserialize(t *testing.T) {
 	if !reflect.DeepEqual(msg, expect) {
 		t.Fatalf("got %+v, expected %+v", msg, expect)
 	}
+}
+
+func TestMessagePackSerializeDataItem(t *testing.T) {
+	s := &MessagePackSerializer{}
+	b, err := s.SerializeDataItem(dataItem)
+	if err != nil {
+		t.Fatal("Serialization error: ", err)
+	}
+	if len(b) == 0 {
+		t.Fatal("no serialized data")
+	}
+	res, err := s.DeserializeDataItem(b)
+	if err != nil {
+		t.Fatal("desrialization error: ", err)
+	}
+	compareDeserializedSerializedDataItem(t, res)
+}
+
+func TestMessagePackDeserializeDataItem(t *testing.T) {
+	s := &MessagePackSerializer{}
+
+	data := []byte{
+		0x91, 0x82, 0xA9, 0x41, 0x72, 0x67, 0x75, 0x6D, 0x65, 0x6E,
+		0x74, 0x73, 0x93, 0x01, 0xA1, 0x32, 0xC3, 0xAB, 0x41, 0x72,
+		0x67, 0x75, 0x6D, 0x65, 0x6E, 0x74, 0x73, 0x4B, 0x77, 0x83,
+		0xA5, 0x70, 0x72, 0x6F, 0x70, 0x31, 0x01, 0xA5, 0x70, 0x72,
+		0x6F, 0x70, 0x32, 0xA1, 0x32, 0xA5, 0x70, 0x72, 0x6F, 0x70,
+		0x33, 0xC3,
+	}
+	msg, err := s.DeserializeDataItem(data)
+	if err != nil {
+		t.Fatalf("Error decoding good data: %s, %x", err, data)
+	}
+	compareDeserializedSerializedDataItem(t, msg)
 }
 
 func TestBinaryDataJSON(t *testing.T) {

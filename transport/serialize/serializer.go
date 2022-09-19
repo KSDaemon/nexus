@@ -31,6 +31,8 @@ type Serialization int
 type Serializer interface {
 	Serialize(wamp.Message) ([]byte, error)
 	Deserialize([]byte) (wamp.Message, error)
+	SerializeDataItem(item interface{}) ([]byte, error)
+	DeserializeDataItem([]byte) (interface{}, error)
 }
 
 // listToMessage takes a list of values from a WAMP message and populates the

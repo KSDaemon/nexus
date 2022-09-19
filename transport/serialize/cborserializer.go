@@ -44,3 +44,23 @@ func (s *CBORSerializer) Deserialize(data []byte) (wamp.Message, error) {
 	}
 	return listToMsg(wamp.MessageType(typ), v)
 }
+
+// SerializeDataItem encodes any object/structure into a json payload.
+func (s *CBORSerializer) SerializeDataItem(item interface{}) ([]byte, error) {
+	var b []byte
+	return b, codec.NewEncoderBytes(&b, ch).Encode(item)
+}
+
+// DeserializeDataItem decodes a json payload into an object/structure.
+func (s *CBORSerializer) DeserializeDataItem(data []byte) (interface{}, error) {
+	var v []interface{}
+	err := codec.NewDecoderBytes(data, ch).Decode(&v)
+	if err != nil {
+		return nil, err
+	}
+	if len(v) == 0 {
+		return nil, errors.New("invalid message")
+	}
+
+	return v, nil
+}
