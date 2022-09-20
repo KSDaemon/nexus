@@ -367,7 +367,7 @@ type InvocationHandler func(context.Context, *wamp.Invocation) InvokeResult
 // call received.
 //
 // If the registration handler wants to cancel the call without returning a
-// result, then is should return InvocationCanceled.
+// result, then it should return InvocationCanceled.
 //
 // # Register Options
 //
@@ -1250,6 +1250,150 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 		})
 		c.log.Print(errMsg)
 		return
+	}
+
+	// Check and handle Payload PassThru Mode
+	// @see https://wamp-proto.org/wamp_latest_ietf.html#name-payload-passthru-mode
+	if pptScheme, _ := msg.Details[wamp.OptPPTScheme].(string); pptScheme != "" {
+		pptSchemeIsValid := false
+		for _, v := range []*regexp.Regexp{
+			regexp.MustCompile("^wamp.eth$"),
+			regexp.MustCompile("^mqtt$"),
+			regexp.MustCompile("^x_"),
+		} {
+			if v.MatchString(pptScheme) {
+				pptSchemeIsValid = true
+				break
+			}
+		}
+
+		if !pptSchemeIsValid {
+			c.sess.Send(&wamp.Error{
+				Type:      wamp.INVOCATION,
+				Request:   reqID,
+				Details:   wamp.Dict{},
+				Error:     wamp.ErrInvalidArgument,
+				Arguments: wamp.List{ErrPPTSchemeInvalid.Error()},
+			})
+			c.log.Print(ErrPPTSchemeInvalid.Error())
+			return
+		}
+
+		// Now need to check ppt_serializer (in pair with ppt_scheme)
+		// and serialize payload with appreciate serializer
+		if pptScheme == "wamp.eth" {
+			var serializer serialize.Serializer
+			pptSerializer, ok := E2eeSerializers[msg.Details[wamp.OptPPTSerializer].(string)]
+			if !ok {
+				c.sess.Send(&wamp.Error{
+					Type:      wamp.INVOCATION,
+					Request:   reqID,
+					Details:   wamp.Dict{},
+					Error:     wamp.ErrInvalidArgument,
+					Arguments: wamp.List{ErrPPTSerializerInvalid.Error()},
+				})
+				c.log.Print(ErrPPTSerializerInvalid.Error())
+				return
+			}
+
+			// Serializer is valid, need to encode payload with it before proceeding
+			switch pptSerializer {
+			case CBOR:
+				serializer = &serialize.CBORSerializer{}
+				// In future should be extended with FlatBuffers
+			}
+
+			payload, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte))
+			if err != nil {
+				c.sess.Send(&wamp.Error{
+					Type:      wamp.INVOCATION,
+					Request:   reqID,
+					Details:   wamp.Dict{},
+					Error:     wamp.ErrInvalidArgument,
+					Arguments: wamp.List{ErrSerialization.Error()},
+				})
+				c.log.Print(ErrSerialization.Error())
+				return
+			}
+
+			payloadTyped, ok := payload.(wamp.PassthruPayload)
+			if !ok {
+				c.sess.Send(&wamp.Error{
+					Type:      wamp.INVOCATION,
+					Request:   reqID,
+					Details:   wamp.Dict{},
+					Error:     wamp.ErrInvalidArgument,
+					Arguments: wamp.List{ErrSerialization.Error()},
+				})
+				c.log.Print(ErrSerialization.Error())
+				return
+			}
+
+			msg.Arguments = payloadTyped.Arguments
+			msg.ArgumentsKw = payloadTyped.ArgumentsKw
+
+		} else if pptScheme != "mqtt" {
+			// In mqtt `native` serializer is used, so no need to prepare payload specifically
+			// In custom scheme we need to encode payload with specified serializer (if provided)
+
+			pptSerializerStr := msg.Details[wamp.OptPPTSerializer].(string)
+			if pptSerializerStr != "native" {
+
+				var serializer serialize.Serializer
+				pptSerializer, ok := PPTSerializers[pptSerializerStr]
+				if !ok {
+					c.sess.Send(&wamp.Error{
+						Type:      wamp.INVOCATION,
+						Request:   reqID,
+						Details:   wamp.Dict{},
+						Error:     wamp.ErrInvalidArgument,
+						Arguments: wamp.List{ErrPPTSerializerInvalid.Error()},
+					})
+					c.log.Print(ErrPPTSerializerInvalid.Error())
+					return
+				}
+
+				// Serializer is valid, need to encode payload with it before proceeding
+				switch pptSerializer {
+				case JSON:
+					serializer = &serialize.JSONSerializer{}
+				case MSGPACK:
+					serializer = &serialize.MessagePackSerializer{}
+				case CBOR:
+					serializer = &serialize.CBORSerializer{}
+					// In future should be extended with FlatBuffers
+				}
+
+				payload, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte))
+				if err != nil {
+					c.sess.Send(&wamp.Error{
+						Type:      wamp.INVOCATION,
+						Request:   reqID,
+						Details:   wamp.Dict{},
+						Error:     wamp.ErrInvalidArgument,
+						Arguments: wamp.List{ErrSerialization.Error()},
+					})
+					c.log.Print(ErrSerialization.Error())
+					return
+				}
+
+				payloadTyped, ok := payload.(wamp.PassthruPayload)
+				if !ok {
+					c.sess.Send(&wamp.Error{
+						Type:      wamp.INVOCATION,
+						Request:   reqID,
+						Details:   wamp.Dict{},
+						Error:     wamp.ErrInvalidArgument,
+						Arguments: wamp.List{ErrSerialization.Error()},
+					})
+					c.log.Print(ErrSerialization.Error())
+					return
+				}
+
+				msg.Arguments = payloadTyped.Arguments
+				msg.ArgumentsKw = payloadTyped.ArgumentsKw
+			}
+		}
 	}
 
 	// Create a kill switch so that invocation can be canceled.

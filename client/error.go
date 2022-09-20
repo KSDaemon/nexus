@@ -13,5 +13,5 @@ var (
 	ErrPPTNotSupported      = errors.New("payload passthru mode is not supported by the router")
 	ErrPPTSchemeInvalid     = errors.New("ppt scheme provided is invalid")
 	ErrPPTSerializerInvalid = errors.New("ppt serializer provided is invalid or not supported")
-	ErrSerialization        = errors.New("can not serialize payload")
+	ErrSerialization        = errors.New("can not serialize/deserialize payload")
 )
