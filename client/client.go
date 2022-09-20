@@ -344,7 +344,7 @@ func (c *Client) Publish(topic string, options wamp.Dict, args wamp.List, kwargs
 
 		pptSchemeIsValid := false
 		for _, v := range []*regexp.Regexp{
-			regexp.MustCompile("^wamp.eth$"),
+			regexp.MustCompile("^wamp$"),
 			regexp.MustCompile("^mqtt$"),
 			regexp.MustCompile("^x_"),
 		} {
@@ -369,7 +369,7 @@ func (c *Client) Publish(topic string, options wamp.Dict, args wamp.List, kwargs
 
 		// Now need to check ppt_serializer (in pair with ppt_scheme)
 		// and serialize payload with appreciate serializer
-		if pptScheme == "wamp.eth" {
+		if pptScheme == "wamp" {
 			var serializer serialize.Serializer
 			pptSerializer, ok := E2eeSerializers[options[wamp.OptPPTSerializer].(string)]
 			if !ok {
@@ -390,9 +390,8 @@ func (c *Client) Publish(topic string, options wamp.Dict, args wamp.List, kwargs
 
 			message.Arguments = wamp.List{bin}
 
-		} else if pptScheme != "mqtt" {
-			// In mqtt `native` serializer is used, so no need to prepare payload specifically
-			// In custom scheme we need to encode payload with specified serializer (if provided)
+		} else {
+			// In mqtt/custom scheme we need to encode payload with specified serializer (if provided)
 
 			pptSerializerStr := options[wamp.OptPPTSerializer].(string)
 			if pptSerializerStr != "native" {
@@ -688,7 +687,7 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 
 		pptSchemeIsValid := false
 		for _, v := range []*regexp.Regexp{
-			regexp.MustCompile("^wamp.eth$"),
+			regexp.MustCompile("^wamp$"),
 			regexp.MustCompile("^mqtt$"),
 			regexp.MustCompile("^x_"),
 		} {
@@ -713,7 +712,7 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 
 		// Now need to check ppt_serializer (in pair with ppt_scheme)
 		// and serialize payload with appreciate serializer
-		if pptScheme == "wamp.eth" {
+		if pptScheme == "wamp" {
 			var serializer serialize.Serializer
 			pptSerializer, ok := E2eeSerializers[options[wamp.OptPPTSerializer].(string)]
 			if !ok {
@@ -734,9 +733,8 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 
 			message.Arguments = wamp.List{bin}
 
-		} else if pptScheme != "mqtt" {
-			// In mqtt `native` serializer is used, so no need to prepare payload specifically
-			// In custom scheme we need to encode payload with specified serializer (if provided)
+		} else {
+			// In mqtt/custom scheme we need to encode payload with specified serializer (if provided)
 
 			pptSerializerStr := options[wamp.OptPPTSerializer].(string)
 			if pptSerializerStr != "native" {
@@ -1328,7 +1326,7 @@ func (c *Client) runHandleEvent(msg *wamp.Event) {
 	if pptScheme, _ := msg.Details[wamp.OptPPTScheme].(string); pptScheme != "" {
 		pptSchemeIsValid := false
 		for _, v := range []*regexp.Regexp{
-			regexp.MustCompile("^wamp.eth$"),
+			regexp.MustCompile("^wamp$"),
 			regexp.MustCompile("^mqtt$"),
 			regexp.MustCompile("^x_"),
 		} {
@@ -1345,7 +1343,7 @@ func (c *Client) runHandleEvent(msg *wamp.Event) {
 
 		// Now need to check ppt_serializer (in pair with ppt_scheme)
 		// and serialize payload with appreciate serializer
-		if pptScheme == "wamp.eth" {
+		if pptScheme == "wamp" {
 			var serializer serialize.Serializer
 			pptSerializer, ok := E2eeSerializers[msg.Details[wamp.OptPPTSerializer].(string)]
 			if !ok {
@@ -1375,9 +1373,8 @@ func (c *Client) runHandleEvent(msg *wamp.Event) {
 			msg.Arguments = payloadTyped.Arguments
 			msg.ArgumentsKw = payloadTyped.ArgumentsKw
 
-		} else if pptScheme != "mqtt" {
-			// In mqtt `native` serializer is used, so no need to prepare payload specifically
-			// In custom scheme we need to encode payload with specified serializer (if provided)
+		} else {
+			// In mqtt/custom scheme we need to encode payload with specified serializer (if provided)
 
 			pptSerializerStr := msg.Details[wamp.OptPPTSerializer].(string)
 			if pptSerializerStr != "native" {
@@ -1455,7 +1452,7 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 	if pptScheme, _ := msg.Details[wamp.OptPPTScheme].(string); pptScheme != "" {
 		pptSchemeIsValid := false
 		for _, v := range []*regexp.Regexp{
-			regexp.MustCompile("^wamp.eth$"),
+			regexp.MustCompile("^wamp$"),
 			regexp.MustCompile("^mqtt$"),
 			regexp.MustCompile("^x_"),
 		} {
@@ -1479,7 +1476,7 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 
 		// Now need to check ppt_serializer (in pair with ppt_scheme)
 		// and serialize payload with appreciate serializer
-		if pptScheme == "wamp.eth" {
+		if pptScheme == "wamp" {
 			var serializer serialize.Serializer
 			pptSerializer, ok := E2eeSerializers[msg.Details[wamp.OptPPTSerializer].(string)]
 			if !ok {
@@ -1530,9 +1527,8 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 			msg.Arguments = payloadTyped.Arguments
 			msg.ArgumentsKw = payloadTyped.ArgumentsKw
 
-		} else if pptScheme != "mqtt" {
-			// In mqtt `native` serializer is used, so no need to prepare payload specifically
-			// In custom scheme we need to encode payload with specified serializer (if provided)
+		} else {
+			// In mqtt/custom scheme we need to encode payload with specified serializer (if provided)
 
 			pptSerializerStr := msg.Details[wamp.OptPPTSerializer].(string)
 			if pptSerializerStr != "native" {
