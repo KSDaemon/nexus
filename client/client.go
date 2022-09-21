@@ -1358,14 +1358,9 @@ func (c *Client) runHandleEvent(msg *wamp.Event) {
 				// In future should be extended with FlatBuffers
 			}
 
-			payload, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte))
+			payloadTyped := &wamp.PassthruPayload{}
+			_, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte), payloadTyped)
 			if err != nil {
-				c.log.Print(ErrSerialization.Error())
-				return
-			}
-
-			payloadTyped, ok := payload.(wamp.PassthruPayload)
-			if !ok {
 				c.log.Print(ErrSerialization.Error())
 				return
 			}
@@ -1397,14 +1392,9 @@ func (c *Client) runHandleEvent(msg *wamp.Event) {
 					// In future should be extended with FlatBuffers
 				}
 
-				payload, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte))
+				payloadTyped := &wamp.PassthruPayload{}
+				_, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte), payloadTyped)
 				if err != nil {
-					c.log.Print(ErrSerialization.Error())
-					return
-				}
-
-				payloadTyped, ok := payload.(wamp.PassthruPayload)
-				if !ok {
 					c.log.Print(ErrSerialization.Error())
 					return
 				}
@@ -1498,21 +1488,9 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 				// In future should be extended with FlatBuffers
 			}
 
-			payload, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte))
+			payloadTyped := &wamp.PassthruPayload{}
+			_, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte), payloadTyped)
 			if err != nil {
-				c.sess.Send(&wamp.Error{
-					Type:      wamp.INVOCATION,
-					Request:   reqID,
-					Details:   wamp.Dict{},
-					Error:     wamp.ErrInvalidArgument,
-					Arguments: wamp.List{ErrSerialization.Error()},
-				})
-				c.log.Print(ErrSerialization.Error())
-				return
-			}
-
-			payloadTyped, ok := payload.(wamp.PassthruPayload)
-			if !ok {
 				c.sess.Send(&wamp.Error{
 					Type:      wamp.INVOCATION,
 					Request:   reqID,
@@ -1558,21 +1536,9 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 					// In future should be extended with FlatBuffers
 				}
 
-				payload, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte))
+				payloadTyped := &wamp.PassthruPayload{}
+				_, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte), payloadTyped)
 				if err != nil {
-					c.sess.Send(&wamp.Error{
-						Type:      wamp.INVOCATION,
-						Request:   reqID,
-						Details:   wamp.Dict{},
-						Error:     wamp.ErrInvalidArgument,
-						Arguments: wamp.List{ErrSerialization.Error()},
-					})
-					c.log.Print(ErrSerialization.Error())
-					return
-				}
-
-				payloadTyped, ok := payload.(wamp.PassthruPayload)
-				if !ok {
 					c.sess.Send(&wamp.Error{
 						Type:      wamp.INVOCATION,
 						Request:   reqID,

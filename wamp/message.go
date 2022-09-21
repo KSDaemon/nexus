@@ -416,8 +416,8 @@ type Result struct {
 
 // Payload format for using in Payload Passthru Mode
 type PassthruPayload struct {
-	Arguments   List `wamp:"omitempty"`
-	ArgumentsKw Dict `wamp:"omitempty"`
+	Arguments   List `wamp:"omitempty" codec:"args"`
+	ArgumentsKw Dict `wamp:"omitempty" codec:"kwargs"`
 }
 
 func (msg *Result) MessageType() MessageType { return RESULT }

@@ -53,14 +53,14 @@ func (s *JSONSerializer) SerializeDataItem(item interface{}) ([]byte, error) {
 }
 
 // DeserializeDataItem decodes a json payload into an object/structure.
-func (s *JSONSerializer) DeserializeDataItem(data []byte) (interface{}, error) {
-	var v []interface{}
+func (s *JSONSerializer) DeserializeDataItem(data []byte, castTo interface{}) (interface{}, error) {
+	var v interface{}
+	if castTo != nil {
+		v = castTo
+	}
 	err := codec.NewDecoderBytes(data, jh).Decode(&v)
 	if err != nil {
 		return nil, err
-	}
-	if len(v) == 0 {
-		return nil, errors.New("invalid message")
 	}
 
 	return v, nil
