@@ -44,7 +44,7 @@ func NewClient(logger *log.Logger) (*client.Client, error) {
 		fmt.Sprintf("router port. (default %d, %d, %d, %d for scheme ws, wss, tcp, tcps)", defaultWsPort, defaultWssPort, defaultTcpPort, defaultTcpsPort))
 	flag.StringVar(&realm, "realm", defaultRealm, "realm name")
 	flag.StringVar(&scheme, "scheme", "ws", "[ws, wss, tcp, tcps, unix]")
-	flag.StringVar(&serType, "serialize", "json", "\"json\" or \"msgpack\"")
+	flag.StringVar(&serType, "serialize", "json", "\"json\" or \"msgpack\" or \"cbor\"")
 	flag.BoolVar(&skipVerify, "skipverify", false,
 		"accept any certificate presented by the server")
 	flag.StringVar(&caFile, "trust", "",
