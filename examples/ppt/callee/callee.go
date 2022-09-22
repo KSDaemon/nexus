@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/gammazero/nexus/v3/client"
 	"github.com/gammazero/nexus/v3/wamp"
@@ -22,6 +23,7 @@ const (
 var logger = log.New(os.Stdout, "CALLEE> ", 0)
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
 
 	var serialization serialize.Serialization
 	var callee *client.Client

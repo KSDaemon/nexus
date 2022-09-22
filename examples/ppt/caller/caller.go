@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"time"
 
 	"github.com/gammazero/nexus/v3/wamp"
 )
@@ -19,6 +20,7 @@ const (
 )
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
 	logger := log.New(os.Stderr, "CALLER> ", 0)
 
 	var serialization serialize.Serialization
