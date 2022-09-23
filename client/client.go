@@ -1504,6 +1504,10 @@ func (c *Client) runHandleEvent(msg *wamp.Event) {
 
 				msg.Arguments = payloadTyped.Arguments
 				msg.ArgumentsKw = payloadTyped.ArgumentsKw
+			} else {
+				payloadTyped := msg.Arguments[0].(*wamp.PassthruPayload)
+				msg.Arguments = payloadTyped.Arguments
+				msg.ArgumentsKw = payloadTyped.ArgumentsKw
 			}
 		}
 	}
