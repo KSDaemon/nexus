@@ -175,6 +175,12 @@ func TestJSONDeserialize(t *testing.T) {
 	if !reflect.DeepEqual(msg, expect) {
 		t.Fatalf("got %+v, expected %+v", msg, expect)
 	}
+
+	emptyData := `[]`
+	_, err = s.Deserialize([]byte(emptyData))
+	if err == nil {
+		t.Fatal("Empty message should be errored while decoding")
+	}
 }
 
 func TestJSONSerializeDataItem(t *testing.T) {
@@ -204,6 +210,15 @@ func TestJSONDeserializeDataItem(t *testing.T) {
 		t.Fatalf("Error decoding good data: %s, %s", err, data)
 	}
 	compareDeserializedSerializedDataItem(t, msg)
+
+	castTo := &[]struct {
+		Arguments   wamp.List
+		ArgumentsKw wamp.Dict
+	}{}
+	_, err = s.DeserializeDataItem([]byte(data), castTo)
+	if err != nil {
+		t.Fatalf("Error decoding good data: %s, %s", err, data)
+	}
 }
 
 func TestCBORSerialize(t *testing.T) {
@@ -260,6 +275,12 @@ func TestCBORDeserialize(t *testing.T) {
 	if !reflect.DeepEqual(msg, expect) {
 		t.Fatalf("got %+v, expected %+v", msg, expect)
 	}
+
+	emptyData := []byte{0x80}
+	_, err = s.Deserialize(emptyData)
+	if err == nil {
+		t.Fatal("Empty message should be errored while decoding")
+	}
 }
 
 func TestCBORSerializeDataItem(t *testing.T) {
@@ -295,6 +316,15 @@ func TestCBORDeserializeDataItem(t *testing.T) {
 		t.Fatalf("Error decoding good data: %s, %x", err, data)
 	}
 	compareDeserializedSerializedDataItem(t, msg)
+
+	castTo := &[]struct {
+		Arguments   wamp.List
+		ArgumentsKw wamp.Dict
+	}{}
+	_, err = s.DeserializeDataItem(data, castTo)
+	if err != nil {
+		t.Fatalf("Error decoding good data: %s, %s", err, data)
+	}
 }
 
 func TestMessagePackSerialize(t *testing.T) {
@@ -344,6 +374,13 @@ func TestMessagePackDeserialize(t *testing.T) {
 	if !reflect.DeepEqual(msg, expect) {
 		t.Fatalf("got %+v, expected %+v", msg, expect)
 	}
+
+	emptyData := []byte{0x90}
+	_, err = s.Deserialize(emptyData)
+	if err == nil {
+		t.Fatal("Empty message should be errored while decoding")
+	}
+
 }
 
 func TestMessagePackSerializeDataItem(t *testing.T) {
@@ -378,6 +415,15 @@ func TestMessagePackDeserializeDataItem(t *testing.T) {
 		t.Fatalf("Error decoding good data: %s, %x", err, data)
 	}
 	compareDeserializedSerializedDataItem(t, msg)
+
+	castTo := &[]struct {
+		Arguments   wamp.List
+		ArgumentsKw wamp.Dict
+	}{}
+	_, err = s.DeserializeDataItem(data, castTo)
+	if err != nil {
+		t.Fatalf("Error decoding good data: %s, %s", err, data)
+	}
 }
 
 func TestBinaryDataJSON(t *testing.T) {
