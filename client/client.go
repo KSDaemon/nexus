@@ -878,15 +878,9 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 					msg.Arguments = payloadTyped.Arguments
 					msg.ArgumentsKw = payloadTyped.ArgumentsKw
 				} else {
-					pt := msg.Arguments[0].(map[string]interface{})
-					a, ok := pt["args"]
-					if ok && a != nil {
-						msg.Arguments = a.([]interface{})
-					}
-					b, ok := pt["kwargs"]
-					if ok && b != nil {
-						msg.ArgumentsKw = b.(map[string]interface{})
-					}
+					payloadTyped := msg.Arguments[0].(*wamp.PassthruPayload)
+					msg.Arguments = payloadTyped.Arguments
+					msg.ArgumentsKw = payloadTyped.ArgumentsKw
 				}
 			}
 		}
@@ -1660,15 +1654,9 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 				msg.Arguments = payloadTyped.Arguments
 				msg.ArgumentsKw = payloadTyped.ArgumentsKw
 			} else {
-				pt := msg.Arguments[0].(map[string]interface{})
-				a, ok := pt["args"]
-				if ok && a != nil {
-					msg.Arguments = a.([]interface{})
-				}
-				b, ok := pt["kwargs"]
-				if ok && b != nil {
-					msg.ArgumentsKw = b.(map[string]interface{})
-				}
+				payloadTyped := msg.Arguments[0].(*wamp.PassthruPayload)
+				msg.Arguments = payloadTyped.Arguments
+				msg.ArgumentsKw = payloadTyped.ArgumentsKw
 			}
 		}
 	}
