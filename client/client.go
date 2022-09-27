@@ -72,6 +72,131 @@ type InvokeResult struct {
 // the invocation was canceled.
 var InvocationCanceled = InvokeResult{Err: wamp.ErrCanceled}
 
+// Helpers for PPT/E2EE
+
+// In mqtt/custom scheme we need to encode payload with specified serializer (if provided)
+func packPPTPayload(options wamp.Dict, args wamp.List, kwargs wamp.Dict) (wamp.List, error) {
+	payload := &wamp.PassthruPayload{
+		Arguments:   args,
+		ArgumentsKw: kwargs,
+	}
+
+	pptSerializerStr, ok := options[wamp.OptPPTSerializer].(string)
+	if ok && pptSerializerStr != "native" {
+
+		var serializer serialize.Serializer
+		pptSerializer, ok := PPTSerializers[pptSerializerStr]
+		if !ok {
+			return nil, ErrPPTSerializerInvalid
+		}
+
+		// Serializer is valid, need to encode payload with it before proceeding
+		switch pptSerializer {
+		case JSON:
+			serializer = &serialize.JSONSerializer{}
+		case MSGPACK:
+			serializer = &serialize.MessagePackSerializer{}
+		case CBOR:
+			serializer = &serialize.CBORSerializer{}
+			// In future should be extended with FlatBuffers
+		}
+
+		bin, err := serializer.SerializeDataItem(payload)
+		if err != nil {
+			return nil, ErrSerialization
+		}
+
+		return wamp.List{bin}, nil
+	}
+
+	return wamp.List{payload}, nil
+}
+
+func unpackPPTPayload(details wamp.Dict, args wamp.List) (wamp.List, wamp.Dict, error) {
+	payloadTyped := &wamp.PassthruPayload{}
+	pptSerializerStr, ok := details[wamp.OptPPTSerializer]
+	if ok && pptSerializerStr != "native" {
+
+		var serializer serialize.Serializer
+		pptSerializer, ok := PPTSerializers[pptSerializerStr.(string)]
+		if !ok {
+			return nil, nil, ErrPPTSerializerInvalid
+		}
+
+		// Serializer is valid, need to encode payload with it before proceeding
+		switch pptSerializer {
+		case JSON:
+			serializer = &serialize.JSONSerializer{}
+		case MSGPACK:
+			serializer = &serialize.MessagePackSerializer{}
+		case CBOR:
+			serializer = &serialize.CBORSerializer{}
+			// In future should be extended with FlatBuffers
+		}
+
+		_, err := serializer.DeserializeDataItem(args[0].([]byte), payloadTyped)
+		if err != nil {
+			return nil, nil, ErrSerialization
+		}
+
+	} else {
+		payloadTyped = args[0].(*wamp.PassthruPayload)
+	}
+
+	return payloadTyped.Arguments, payloadTyped.ArgumentsKw, nil
+}
+
+// Preparing End-2-End Encrypted Payload
+func packE2EEPayload(options wamp.Dict, args wamp.List, kwargs wamp.Dict) (wamp.List, error) {
+	payload := &wamp.PassthruPayload{
+		Arguments:   args,
+		ArgumentsKw: kwargs,
+	}
+
+	var serializer serialize.Serializer
+	pptSerializer, ok := E2eeSerializers[options[wamp.OptPPTSerializer].(string)]
+	if !ok {
+		return nil, ErrPPTSerializerInvalid
+	}
+
+	// Serializer is valid, need to encode payload with it before proceeding
+	switch pptSerializer {
+	case CBOR:
+		serializer = &serialize.CBORSerializer{}
+		// In future should be extended with FlatBuffers
+	}
+
+	bin, err := serializer.SerializeDataItem(payload)
+	if err != nil {
+		return nil, ErrSerialization
+	}
+
+	return wamp.List{bin}, nil
+}
+
+func unpackE2EEPayload(details wamp.Dict, args wamp.List) (wamp.List, wamp.Dict, error) {
+	var serializer serialize.Serializer
+	pptSerializer, ok := E2eeSerializers[details[wamp.OptPPTSerializer].(string)]
+	if !ok {
+		return nil, nil, ErrPPTSerializerInvalid
+	}
+
+	// Serializer is valid, need to encode payload with it before proceeding
+	switch pptSerializer {
+	case CBOR:
+		serializer = &serialize.CBORSerializer{}
+		// In future should be extended with FlatBuffers
+	}
+
+	payloadTyped := &wamp.PassthruPayload{}
+	_, err := serializer.DeserializeDataItem(args[0].([]byte), payloadTyped)
+	if err != nil {
+		return nil, nil, ErrSerialization
+	}
+
+	return payloadTyped.Arguments, payloadTyped.ArgumentsKw, nil
+}
+
 // NewClient takes a connected Peer, joins the realm specified in cfg, and if
 // successful, returns a new client.
 //
@@ -352,67 +477,21 @@ func (c *Client) Publish(topic string, options wamp.Dict, args wamp.List, kwargs
 
 		// Broker supports PPT feature
 		// Let's prepare payload based on ppt_* attributes provided
-		payload := &wamp.PassthruPayload{
-			Arguments:   args,
-			ArgumentsKw: kwargs,
-		}
+		var payload wamp.List
+		var err error
 
-		message.Arguments = wamp.List{payload}
-
-		// Now need to check ppt_serializer (in pair with ppt_scheme)
-		// and serialize payload with appreciate serializer
 		if pptScheme == "wamp" {
-			var serializer serialize.Serializer
-			pptSerializer, ok := E2eeSerializers[options[wamp.OptPPTSerializer].(string)]
-			if !ok {
-				return ErrPPTSerializerInvalid
-			}
-
-			// Serializer is valid, need to encode payload with it before proceeding
-			switch pptSerializer {
-			case CBOR:
-				serializer = &serialize.CBORSerializer{}
-				// In future should be extended with FlatBuffers
-			}
-
-			bin, err := serializer.SerializeDataItem(payload)
-			if err != nil {
-				return ErrSerialization
-			}
-
-			message.Arguments = wamp.List{bin}
-
+			payload, err = packE2EEPayload(options, args, kwargs)
 		} else {
-			// In mqtt/custom scheme we need to encode payload with specified serializer (if provided)
-
-			pptSerializerStr, ok := options[wamp.OptPPTSerializer].(string)
-			if ok && pptSerializerStr != "native" {
-
-				var serializer serialize.Serializer
-				pptSerializer, ok := PPTSerializers[pptSerializerStr]
-				if !ok {
-					return ErrPPTSerializerInvalid
-				}
-
-				// Serializer is valid, need to encode payload with it before proceeding
-				switch pptSerializer {
-				case JSON:
-					serializer = &serialize.JSONSerializer{}
-				case MSGPACK:
-					serializer = &serialize.MessagePackSerializer{}
-				case CBOR:
-					serializer = &serialize.CBORSerializer{}
-					// In future should be extended with FlatBuffers
-				}
-
-				bin, err := serializer.SerializeDataItem(payload)
-				if err != nil {
-					return ErrSerialization
-				}
-
-				message.Arguments = wamp.List{bin}
-			}
+			payload, err = packPPTPayload(options, args, kwargs)
 		}
+
+		if err != nil {
+			return err
+		}
+
+		message.Arguments = payload
+
 	} else {
 		message.Arguments = args
 		message.ArgumentsKw = kwargs
@@ -687,67 +766,20 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 
 		// Dealer supports PPT feature
 		// Let's prepare payload based on ppt_* attributes provided
-		payload := &wamp.PassthruPayload{
-			Arguments:   args,
-			ArgumentsKw: kwargs,
-		}
-
-		message.Arguments = wamp.List{payload}
-
-		// Now need to check ppt_serializer (in pair with ppt_scheme)
-		// and serialize payload with appreciate serializer
+		var payload wamp.List
+		var err error
 		if pptScheme == "wamp" {
-			var serializer serialize.Serializer
-			pptSerializer, ok := E2eeSerializers[options[wamp.OptPPTSerializer].(string)]
-			if !ok {
-				return nil, ErrPPTSerializerInvalid
-			}
-
-			// Serializer is valid, need to encode payload with it before proceeding
-			switch pptSerializer {
-			case CBOR:
-				serializer = &serialize.CBORSerializer{}
-				// In future should be extended with FlatBuffers
-			}
-
-			bin, err := serializer.SerializeDataItem(payload)
-			if err != nil {
-				return nil, ErrSerialization
-			}
-
-			message.Arguments = wamp.List{bin}
-
+			payload, err = packE2EEPayload(options, args, kwargs)
 		} else {
-			// In mqtt/custom scheme we need to encode payload with specified serializer (if provided)
-
-			pptSerializerStr, ok := options[wamp.OptPPTSerializer].(string)
-			if ok && pptSerializerStr != "native" {
-
-				var serializer serialize.Serializer
-				pptSerializer, ok := PPTSerializers[pptSerializerStr]
-				if !ok {
-					return nil, ErrPPTSerializerInvalid
-				}
-
-				// Serializer is valid, need to encode payload with it before proceeding
-				switch pptSerializer {
-				case JSON:
-					serializer = &serialize.JSONSerializer{}
-				case MSGPACK:
-					serializer = &serialize.MessagePackSerializer{}
-				case CBOR:
-					serializer = &serialize.CBORSerializer{}
-					// In future should be extended with FlatBuffers
-				}
-
-				bin, err := serializer.SerializeDataItem(payload)
-				if err != nil {
-					return nil, ErrSerialization
-				}
-
-				message.Arguments = wamp.List{bin}
-			}
+			payload, err = packPPTPayload(options, args, kwargs)
 		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		message.Arguments = payload
+
 	} else {
 		message.Arguments = args
 		message.ArgumentsKw = kwargs
@@ -796,68 +828,24 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 				return nil, ErrPPTSchemeInvalid
 			}
 
+			var args wamp.List
+			var kwargs wamp.Dict
+			var err error
+
 			// Now need to check ppt_serializer (in pair with ppt_scheme)
 			// and deserialize payload with appreciate serializer
 			if pptScheme == "wamp" {
-				var serializer serialize.Serializer
-				pptSerializer, ok := E2eeSerializers[msg.Details[wamp.OptPPTSerializer].(string)]
-				if !ok {
-					return nil, ErrPPTSerializerInvalid
-				}
-
-				// Serializer is valid, need to encode payload with it before proceeding
-				switch pptSerializer {
-				case CBOR:
-					serializer = &serialize.CBORSerializer{}
-					// In future should be extended with FlatBuffers
-				}
-
-				payloadTyped := &wamp.PassthruPayload{}
-				_, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte), payloadTyped)
-				if err != nil {
-					return nil, ErrSerialization
-				}
-
-				msg.Arguments = payloadTyped.Arguments
-				msg.ArgumentsKw = payloadTyped.ArgumentsKw
-
+				args, kwargs, err = unpackE2EEPayload(msg.Details, msg.Arguments)
 			} else {
-				// In mqtt/custom scheme we need to encode payload with specified serializer (if provided)
-
-				pptSerializerStr, ok := msg.Details[wamp.OptPPTSerializer]
-				if ok && pptSerializerStr != "native" {
-
-					var serializer serialize.Serializer
-					pptSerializer, ok := PPTSerializers[pptSerializerStr.(string)]
-					if !ok {
-						return nil, ErrPPTSerializerInvalid
-					}
-
-					// Serializer is valid, need to encode payload with it before proceeding
-					switch pptSerializer {
-					case JSON:
-						serializer = &serialize.JSONSerializer{}
-					case MSGPACK:
-						serializer = &serialize.MessagePackSerializer{}
-					case CBOR:
-						serializer = &serialize.CBORSerializer{}
-						// In future should be extended with FlatBuffers
-					}
-
-					payloadTyped := &wamp.PassthruPayload{}
-					_, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte), payloadTyped)
-					if err != nil {
-						return nil, ErrSerialization
-					}
-
-					msg.Arguments = payloadTyped.Arguments
-					msg.ArgumentsKw = payloadTyped.ArgumentsKw
-				} else {
-					payloadTyped := msg.Arguments[0].(*wamp.PassthruPayload)
-					msg.Arguments = payloadTyped.Arguments
-					msg.ArgumentsKw = payloadTyped.ArgumentsKw
-				}
+				args, kwargs, err = unpackPPTPayload(msg.Details, msg.Arguments)
 			}
+
+			if err != nil {
+				return nil, err
+			}
+
+			msg.Arguments = args
+			msg.ArgumentsKw = kwargs
 		}
 		return msg, nil
 	case *wamp.Error:
@@ -1405,72 +1393,25 @@ func (c *Client) runHandleEvent(msg *wamp.Event) {
 			return
 		}
 
+		var args wamp.List
+		var kwargs wamp.Dict
+		var err error
+
 		// Now need to check ppt_serializer (in pair with ppt_scheme)
 		// and serialize payload with appreciate serializer
 		if pptScheme == "wamp" {
-			var serializer serialize.Serializer
-			pptSerializer, ok := E2eeSerializers[msg.Details[wamp.OptPPTSerializer].(string)]
-			if !ok {
-				c.log.Print(ErrPPTSerializerInvalid.Error())
-				return
-			}
-
-			// Serializer is valid, need to encode payload with it before proceeding
-			switch pptSerializer {
-			case CBOR:
-				serializer = &serialize.CBORSerializer{}
-				// In future should be extended with FlatBuffers
-			}
-
-			payloadTyped := &wamp.PassthruPayload{}
-			_, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte), payloadTyped)
-			if err != nil {
-				c.log.Print(ErrSerialization.Error())
-				return
-			}
-
-			msg.Arguments = payloadTyped.Arguments
-			msg.ArgumentsKw = payloadTyped.ArgumentsKw
-
+			args, kwargs, err = unpackE2EEPayload(msg.Details, msg.Arguments)
 		} else {
-			// In mqtt/custom scheme we need to encode payload with specified serializer (if provided)
-
-			pptSerializerStr, ok := msg.Details[wamp.OptPPTSerializer]
-			if ok && pptSerializerStr != "native" {
-
-				var serializer serialize.Serializer
-				pptSerializer, ok := PPTSerializers[pptSerializerStr.(string)]
-				if !ok {
-					c.log.Print(ErrPPTSerializerInvalid.Error())
-					return
-				}
-
-				// Serializer is valid, need to encode payload with it before proceeding
-				switch pptSerializer {
-				case JSON:
-					serializer = &serialize.JSONSerializer{}
-				case MSGPACK:
-					serializer = &serialize.MessagePackSerializer{}
-				case CBOR:
-					serializer = &serialize.CBORSerializer{}
-					// In future should be extended with FlatBuffers
-				}
-
-				payloadTyped := &wamp.PassthruPayload{}
-				_, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte), payloadTyped)
-				if err != nil {
-					c.log.Print(ErrSerialization.Error())
-					return
-				}
-
-				msg.Arguments = payloadTyped.Arguments
-				msg.ArgumentsKw = payloadTyped.ArgumentsKw
-			} else {
-				payloadTyped := msg.Arguments[0].(*wamp.PassthruPayload)
-				msg.Arguments = payloadTyped.Arguments
-				msg.ArgumentsKw = payloadTyped.ArgumentsKw
-			}
+			args, kwargs, err = unpackPPTPayload(msg.Details, msg.Arguments)
 		}
+
+		if err != nil {
+			c.log.Print(err.Error())
+			return
+		}
+
+		msg.Arguments = args
+		msg.ArgumentsKw = kwargs
 	}
 
 	handler(msg)
@@ -1525,100 +1466,32 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 			return
 		}
 
+		var args wamp.List
+		var kwargs wamp.Dict
+		var err error
+
 		// Now need to check ppt_serializer (in pair with ppt_scheme)
 		// and deserialize payload with appreciate serializer
 		if pptScheme == "wamp" {
-			var serializer serialize.Serializer
-			pptSerializer, ok := E2eeSerializers[msg.Details[wamp.OptPPTSerializer].(string)]
-			if !ok {
-				c.sess.Send(&wamp.Error{
-					Type:      wamp.INVOCATION,
-					Request:   reqID,
-					Details:   wamp.Dict{},
-					Error:     wamp.ErrInvalidArgument,
-					Arguments: wamp.List{ErrPPTSerializerInvalid.Error()},
-				})
-				c.log.Print(ErrPPTSerializerInvalid.Error())
-				return
-			}
-
-			// Serializer is valid, need to encode payload with it before proceeding
-			switch pptSerializer {
-			case CBOR:
-				serializer = &serialize.CBORSerializer{}
-				// In future should be extended with FlatBuffers
-			}
-
-			payloadTyped := &wamp.PassthruPayload{}
-			_, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte), payloadTyped)
-			if err != nil {
-				c.sess.Send(&wamp.Error{
-					Type:      wamp.INVOCATION,
-					Request:   reqID,
-					Details:   wamp.Dict{},
-					Error:     wamp.ErrInvalidArgument,
-					Arguments: wamp.List{ErrSerialization.Error()},
-				})
-				c.log.Print(ErrSerialization.Error())
-				return
-			}
-
-			msg.Arguments = payloadTyped.Arguments
-			msg.ArgumentsKw = payloadTyped.ArgumentsKw
-
+			args, kwargs, err = unpackE2EEPayload(msg.Details, msg.Arguments)
 		} else {
-			// In mqtt/custom scheme we need to encode payload with specified serializer (if provided)
-
-			pptSerializerStr, ok := msg.Details[wamp.OptPPTSerializer]
-			if ok && pptSerializerStr != "native" {
-
-				var serializer serialize.Serializer
-				pptSerializer, ok := PPTSerializers[pptSerializerStr.(string)]
-				if !ok {
-					c.sess.Send(&wamp.Error{
-						Type:      wamp.INVOCATION,
-						Request:   reqID,
-						Details:   wamp.Dict{},
-						Error:     wamp.ErrInvalidArgument,
-						Arguments: wamp.List{ErrPPTSerializerInvalid.Error()},
-					})
-					c.log.Print(ErrPPTSerializerInvalid.Error())
-					return
-				}
-
-				// Serializer is valid, need to encode payload with it before proceeding
-				switch pptSerializer {
-				case JSON:
-					serializer = &serialize.JSONSerializer{}
-				case MSGPACK:
-					serializer = &serialize.MessagePackSerializer{}
-				case CBOR:
-					serializer = &serialize.CBORSerializer{}
-					// In future should be extended with FlatBuffers
-				}
-
-				payloadTyped := &wamp.PassthruPayload{}
-				_, err := serializer.DeserializeDataItem(msg.Arguments[0].([]byte), payloadTyped)
-				if err != nil {
-					c.sess.Send(&wamp.Error{
-						Type:      wamp.INVOCATION,
-						Request:   reqID,
-						Details:   wamp.Dict{},
-						Error:     wamp.ErrInvalidArgument,
-						Arguments: wamp.List{ErrSerialization.Error()},
-					})
-					c.log.Print(ErrSerialization.Error())
-					return
-				}
-
-				msg.Arguments = payloadTyped.Arguments
-				msg.ArgumentsKw = payloadTyped.ArgumentsKw
-			} else {
-				payloadTyped := msg.Arguments[0].(*wamp.PassthruPayload)
-				msg.Arguments = payloadTyped.Arguments
-				msg.ArgumentsKw = payloadTyped.ArgumentsKw
-			}
+			args, kwargs, err = unpackPPTPayload(msg.Details, msg.Arguments)
 		}
+
+		if err != nil {
+			c.sess.Send(&wamp.Error{
+				Type:      wamp.INVOCATION,
+				Request:   reqID,
+				Details:   wamp.Dict{},
+				Error:     wamp.ErrInvalidArgument,
+				Arguments: wamp.List{err.Error()},
+			})
+			c.log.Print(ErrSerialization.Error())
+			return
+		}
+
+		msg.Arguments = args
+		msg.ArgumentsKw = kwargs
 	}
 
 	// Create a kill switch so that invocation can be canceled.
@@ -1751,107 +1624,31 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 
 			// Dealer supports PPT feature
 			// Let's prepare payload based on ppt_* attributes provided
-			payload := &wamp.PassthruPayload{
-				Arguments:   result.Args,
-				ArgumentsKw: result.Kwargs,
-			}
+			var payload wamp.List
+			var err error
 
-			message.Arguments = wamp.List{payload}
-
-			// Now need to check ppt_serializer (in pair with ppt_scheme)
-			// and serialize payload with appreciate serializer
 			if pptScheme == "wamp" {
-				var serializer serialize.Serializer
-				pptSerializer, ok := E2eeSerializers[options[wamp.OptPPTSerializer].(string)]
-				if !ok {
-					c.sess.SendCtx(c.ctx, &wamp.Error{
-						Type:    wamp.INVOCATION,
-						Request: reqID,
-						Details: wamp.Dict{
-							"error": ErrPPTSerializerInvalid.Error(),
-						},
-						Arguments:   result.Args,
-						ArgumentsKw: result.Kwargs,
-						Error:       wamp.ErrInvalidArgument,
-					})
-					return
-				}
-
-				// Serializer is valid, need to encode payload with it before proceeding
-				switch pptSerializer {
-				case CBOR:
-					serializer = &serialize.CBORSerializer{}
-					// In future should be extended with FlatBuffers
-				}
-
-				bin, err := serializer.SerializeDataItem(payload)
-				if err != nil {
-					c.sess.SendCtx(c.ctx, &wamp.Error{
-						Type:    wamp.INVOCATION,
-						Request: reqID,
-						Details: wamp.Dict{
-							"error": ErrSerialization.Error(),
-						},
-						Arguments:   result.Args,
-						ArgumentsKw: result.Kwargs,
-						Error:       wamp.ErrInvalidArgument,
-					})
-					return
-				}
-
-				message.Arguments = wamp.List{bin}
-
+				payload, err = packE2EEPayload(options, result.Args, result.Kwargs)
 			} else {
-				// In mqtt/custom scheme we need to encode payload with specified serializer (if provided)
-
-				pptSerializerStr, ok := options[wamp.OptPPTSerializer].(string)
-				if ok && pptSerializerStr != "native" {
-
-					var serializer serialize.Serializer
-					pptSerializer, ok := PPTSerializers[pptSerializerStr]
-					if !ok {
-						c.sess.SendCtx(c.ctx, &wamp.Error{
-							Type:    wamp.INVOCATION,
-							Request: reqID,
-							Details: wamp.Dict{
-								"error": ErrPPTSerializerInvalid.Error(),
-							},
-							Arguments:   result.Args,
-							ArgumentsKw: result.Kwargs,
-							Error:       wamp.ErrInvalidArgument,
-						})
-						return
-					}
-
-					// Serializer is valid, need to encode payload with it before proceeding
-					switch pptSerializer {
-					case JSON:
-						serializer = &serialize.JSONSerializer{}
-					case MSGPACK:
-						serializer = &serialize.MessagePackSerializer{}
-					case CBOR:
-						serializer = &serialize.CBORSerializer{}
-						// In future should be extended with FlatBuffers
-					}
-
-					bin, err := serializer.SerializeDataItem(payload)
-					if err != nil {
-						c.sess.SendCtx(c.ctx, &wamp.Error{
-							Type:    wamp.INVOCATION,
-							Request: reqID,
-							Details: wamp.Dict{
-								"error": ErrSerialization.Error(),
-							},
-							Arguments:   result.Args,
-							ArgumentsKw: result.Kwargs,
-							Error:       wamp.ErrInvalidArgument,
-						})
-						return
-					}
-
-					message.Arguments = wamp.List{bin}
-				}
+				payload, err = packPPTPayload(options, result.Args, result.Kwargs)
 			}
+
+			if err != nil {
+				c.sess.SendCtx(c.ctx, &wamp.Error{
+					Type:    wamp.INVOCATION,
+					Request: reqID,
+					Details: wamp.Dict{
+						"error": err.Error(),
+					},
+					Arguments:   result.Args,
+					ArgumentsKw: result.Kwargs,
+					Error:       wamp.ErrInvalidArgument,
+				})
+				return
+			}
+
+			message.Arguments = payload
+
 		} else {
 			message.Arguments = result.Args
 			message.ArgumentsKw = result.Kwargs
