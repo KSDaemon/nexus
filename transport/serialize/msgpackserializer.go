@@ -28,7 +28,8 @@ type MessagePackSerializer struct{}
 // Serialize encodes a Message into a msgpack payload.
 func (s *MessagePackSerializer) Serialize(msg wamp.Message) ([]byte, error) {
 	var b []byte
-	return b, codec.NewEncoderBytes(&b, mh).Encode(msgToList(msg))
+	err := codec.NewEncoderBytes(&b, mh).Encode(msgToList(msg))
+	return b, err
 }
 
 // Deserialize decodes a msgpack payload into a Message.
@@ -49,10 +50,11 @@ func (s *MessagePackSerializer) Deserialize(data []byte) (wamp.Message, error) {
 	return listToMsg(wamp.MessageType(typ), v)
 }
 
-// SerializeDataItem encodes any object/structure into a json payload.
+// SerializeDataItem encodes any object/structure into a msgpack payload.
 func (s *MessagePackSerializer) SerializeDataItem(item interface{}) ([]byte, error) {
 	var b []byte
-	return b, codec.NewEncoderBytes(&b, mh).Encode(item)
+	err := codec.NewEncoderBytes(&b, mh).Encode(item)
+	return b, err
 }
 
 // DeserializeDataItem decodes a json payload into an object/structure.

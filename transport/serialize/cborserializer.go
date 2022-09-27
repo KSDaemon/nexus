@@ -22,7 +22,8 @@ type CBORSerializer struct{}
 // Serialize encodes a Message into a cbor payload.
 func (s *CBORSerializer) Serialize(msg wamp.Message) ([]byte, error) {
 	var b []byte
-	return b, codec.NewEncoderBytes(&b, ch).Encode(msgToList(msg))
+	err := codec.NewEncoderBytes(&b, ch).Encode(msgToList(msg))
+	return b, err
 }
 
 // Deserialize decodes a cbor payload into a Message.
@@ -45,10 +46,11 @@ func (s *CBORSerializer) Deserialize(data []byte) (wamp.Message, error) {
 	return listToMsg(wamp.MessageType(typ), v)
 }
 
-// SerializeDataItem encodes any object/structure into a json payload.
+// SerializeDataItem encodes any object/structure into a cbor payload.
 func (s *CBORSerializer) SerializeDataItem(item interface{}) ([]byte, error) {
 	var b []byte
-	return b, codec.NewEncoderBytes(&b, ch).Encode(item)
+	err := codec.NewEncoderBytes(&b, ch).Encode(item)
+	return b, err
 }
 
 // DeserializeDataItem decodes a json payload into an object/structure.

@@ -9,7 +9,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -343,19 +342,11 @@ func (c *Client) Publish(topic string, options wamp.Dict, args wamp.List, kwargs
 			return ErrPPTNotSupported
 		}
 
-		pptSchemeIsValid := false
-		for _, v := range []*regexp.Regexp{
-			regexp.MustCompile("^wamp$"),
-			regexp.MustCompile("^mqtt$"),
-			regexp.MustCompile("^x_"),
-		} {
-			if v.MatchString(pptScheme) {
-				pptSchemeIsValid = true
-				break
-			}
-		}
-
-		if !pptSchemeIsValid {
+		switch {
+		case pptScheme == "wamp" || pptScheme == "mqtt" || strings.HasPrefix(pptScheme, "x_"):
+			// passthru of wamp and mqtt is supported by default, optionally a custom ppt scheme
+			// is also allowed
+		default:
 			return ErrPPTSchemeInvalid
 		}
 
@@ -394,11 +385,11 @@ func (c *Client) Publish(topic string, options wamp.Dict, args wamp.List, kwargs
 		} else {
 			// In mqtt/custom scheme we need to encode payload with specified serializer (if provided)
 
-			pptSerializerStr, ok := options[wamp.OptPPTSerializer]
+			pptSerializerStr, ok := options[wamp.OptPPTSerializer].(string)
 			if ok && pptSerializerStr != "native" {
 
 				var serializer serialize.Serializer
-				pptSerializer, ok := PPTSerializers[pptSerializerStr.(string)]
+				pptSerializer, ok := PPTSerializers[pptSerializerStr]
 				if !ok {
 					return ErrPPTSerializerInvalid
 				}
@@ -686,19 +677,11 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 			return nil, ErrPPTNotSupported
 		}
 
-		pptSchemeIsValid := false
-		for _, v := range []*regexp.Regexp{
-			regexp.MustCompile("^wamp$"),
-			regexp.MustCompile("^mqtt$"),
-			regexp.MustCompile("^x_"),
-		} {
-			if v.MatchString(pptScheme) {
-				pptSchemeIsValid = true
-				break
-			}
-		}
-
-		if !pptSchemeIsValid {
+		switch {
+		case pptScheme == "wamp" || pptScheme == "mqtt" || strings.HasPrefix(pptScheme, "x_"):
+			// passthru of wamp and mqtt is supported by default, optionally a custom ppt scheme
+			// is also allowed
+		default:
 			return nil, ErrPPTSchemeInvalid
 		}
 
@@ -737,11 +720,11 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 		} else {
 			// In mqtt/custom scheme we need to encode payload with specified serializer (if provided)
 
-			pptSerializerStr, ok := options[wamp.OptPPTSerializer]
+			pptSerializerStr, ok := options[wamp.OptPPTSerializer].(string)
 			if ok && pptSerializerStr != "native" {
 
 				var serializer serialize.Serializer
-				pptSerializer, ok := PPTSerializers[pptSerializerStr.(string)]
+				pptSerializer, ok := PPTSerializers[pptSerializerStr]
 				if !ok {
 					return nil, ErrPPTSerializerInvalid
 				}
@@ -805,19 +788,11 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 				return nil, ErrPPTNotSupported
 			}
 
-			pptSchemeIsValid := false
-			for _, v := range []*regexp.Regexp{
-				regexp.MustCompile("^wamp$"),
-				regexp.MustCompile("^mqtt$"),
-				regexp.MustCompile("^x_"),
-			} {
-				if v.MatchString(pptScheme) {
-					pptSchemeIsValid = true
-					break
-				}
-			}
-
-			if !pptSchemeIsValid {
+			switch {
+			case pptScheme == "wamp" || pptScheme == "mqtt" || strings.HasPrefix(pptScheme, "x_"):
+				// passthru of wamp and mqtt is supported by default, optionally a custom ppt scheme
+				// is also allowed
+			default:
 				return nil, ErrPPTSchemeInvalid
 			}
 
@@ -1421,19 +1396,11 @@ func (c *Client) runHandleEvent(msg *wamp.Event) {
 	// we can not reply with error, only log it.
 	// Although the router should handle it
 	if pptScheme, _ := msg.Details[wamp.OptPPTScheme].(string); pptScheme != "" {
-		pptSchemeIsValid := false
-		for _, v := range []*regexp.Regexp{
-			regexp.MustCompile("^wamp$"),
-			regexp.MustCompile("^mqtt$"),
-			regexp.MustCompile("^x_"),
-		} {
-			if v.MatchString(pptScheme) {
-				pptSchemeIsValid = true
-				break
-			}
-		}
-
-		if !pptSchemeIsValid {
+		switch {
+		case pptScheme == "wamp" || pptScheme == "mqtt" || strings.HasPrefix(pptScheme, "x_"):
+			// passthru of wamp and mqtt is supported by default, optionally a custom ppt scheme
+			// is also allowed
+		default:
 			c.log.Print(ErrPPTSchemeInvalid.Error())
 			return
 		}
@@ -1541,19 +1508,12 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 	// Check and handle Payload PassThru Mode
 	// @see https://wamp-proto.org/wamp_latest_ietf.html#name-payload-passthru-mode
 	if pptScheme, _ := msg.Details[wamp.OptPPTScheme].(string); pptScheme != "" {
-		pptSchemeIsValid := false
-		for _, v := range []*regexp.Regexp{
-			regexp.MustCompile("^wamp$"),
-			regexp.MustCompile("^mqtt$"),
-			regexp.MustCompile("^x_"),
-		} {
-			if v.MatchString(pptScheme) {
-				pptSchemeIsValid = true
-				break
-			}
-		}
 
-		if !pptSchemeIsValid {
+		switch {
+		case pptScheme == "wamp" || pptScheme == "mqtt" || strings.HasPrefix(pptScheme, "x_"):
+			// passthru of wamp and mqtt is supported by default, optionally a custom ppt scheme
+			// is also allowed
+		default:
 			c.sess.Send(&wamp.Error{
 				Type:      wamp.INVOCATION,
 				Request:   reqID,
@@ -1771,19 +1731,11 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 				return
 			}
 
-			pptSchemeIsValid := false
-			for _, v := range []*regexp.Regexp{
-				regexp.MustCompile("^wamp$"),
-				regexp.MustCompile("^mqtt$"),
-				regexp.MustCompile("^x_"),
-			} {
-				if v.MatchString(pptScheme) {
-					pptSchemeIsValid = true
-					break
-				}
-			}
-
-			if !pptSchemeIsValid {
+			switch {
+			case pptScheme == "wamp" || pptScheme == "mqtt" || strings.HasPrefix(pptScheme, "x_"):
+				// passthru of wamp and mqtt is supported by default, optionally a custom ppt scheme
+				// is also allowed
+			default:
 				c.sess.SendCtx(c.ctx, &wamp.Error{
 					Type:    wamp.INVOCATION,
 					Request: reqID,
@@ -1852,11 +1804,11 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 			} else {
 				// In mqtt/custom scheme we need to encode payload with specified serializer (if provided)
 
-				pptSerializerStr, ok := options[wamp.OptPPTSerializer]
+				pptSerializerStr, ok := options[wamp.OptPPTSerializer].(string)
 				if ok && pptSerializerStr != "native" {
 
 					var serializer serialize.Serializer
-					pptSerializer, ok := PPTSerializers[pptSerializerStr.(string)]
+					pptSerializer, ok := PPTSerializers[pptSerializerStr]
 					if !ok {
 						c.sess.SendCtx(c.ctx, &wamp.Error{
 							Type:    wamp.INVOCATION,
