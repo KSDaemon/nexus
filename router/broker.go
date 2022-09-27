@@ -144,12 +144,6 @@ func (b *broker) publish(pub *wamp.Session, msg *wamp.Publish) {
 		// Let's check: was ppt feature announced by publisher?
 		if !pub.HasFeature(wamp.RolePublisher, wamp.FeaturePayloadPassthruMode) {
 			// It's protocol violation, so we need to abort connection
-			//d.trySend(pub, &wamp.Error{
-			//	Type:    msg.MessageType(),
-			//	Request: msg.Request,
-			//	Details: wamp.Dict{},
-			//	Error:   wamp.ErrProtocolViolation,
-			//})
 			abortMsg := wamp.Abort{Reason: wamp.ErrProtocolViolation}
 			abortMsg.Details = wamp.Dict{}
 			abortMsg.Details[wamp.OptMessage] = "Peer is trying to use Payload PassThru Mode while it was not announced during HELLO handshake"
