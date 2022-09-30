@@ -74,6 +74,12 @@ var InvocationCanceled = InvokeResult{Err: wamp.ErrCanceled}
 
 // Helpers for PPT/E2EE
 
+func isPPTSchemeValid(pptScheme string) bool {
+	// passthru of wamp and mqtt is supported by default, optionally a custom ppt scheme
+	// is also allowed
+	return pptScheme == "wamp" || pptScheme == "mqtt" || strings.HasPrefix(pptScheme, "x_")
+}
+
 // In mqtt/custom scheme we need to encode payload with specified serializer (if provided)
 func packPPTPayload(options wamp.Dict, args wamp.List, kwargs wamp.Dict) (wamp.List, error) {
 	payload := &wamp.PassthruPayload{
@@ -113,7 +119,7 @@ func packPPTPayload(options wamp.Dict, args wamp.List, kwargs wamp.Dict) (wamp.L
 }
 
 func unpackPPTPayload(details wamp.Dict, args wamp.List) (wamp.List, wamp.Dict, error) {
-	payloadTyped := &wamp.PassthruPayload{}
+	var payloadTyped *wamp.PassthruPayload
 	pptSerializerStr, ok := details[wamp.OptPPTSerializer]
 	if ok && pptSerializerStr != "native" {
 
@@ -134,8 +140,7 @@ func unpackPPTPayload(details wamp.Dict, args wamp.List) (wamp.List, wamp.Dict, 
 			// In future should be extended with FlatBuffers
 		}
 
-		_, err := serializer.DeserializeDataItem(args[0].([]byte), payloadTyped)
-		if err != nil {
+		if err := serializer.DeserializeDataItem(args[0].([]byte), &payloadTyped); err != nil {
 			return nil, nil, ErrSerialization
 		}
 
@@ -188,9 +193,8 @@ func unpackE2EEPayload(details wamp.Dict, args wamp.List) (wamp.List, wamp.Dict,
 		// In future should be extended with FlatBuffers
 	}
 
-	payloadTyped := &wamp.PassthruPayload{}
-	_, err := serializer.DeserializeDataItem(args[0].([]byte), payloadTyped)
-	if err != nil {
+	var payloadTyped wamp.PassthruPayload
+	if err := serializer.DeserializeDataItem(args[0].([]byte), &payloadTyped); err != nil {
 		return nil, nil, ErrSerialization
 	}
 
@@ -464,14 +468,10 @@ func (c *Client) Publish(topic string, options wamp.Dict, args wamp.List, kwargs
 			// It's protocol violation, so we need to abort connection
 			// But as we did not send anything to the router
 			// let's just err client
-			return ErrPPTNotSupported
+			return ErrPPTNotSupportedByRouter
 		}
 
-		switch {
-		case pptScheme == "wamp" || pptScheme == "mqtt" || strings.HasPrefix(pptScheme, "x_"):
-			// passthru of wamp and mqtt is supported by default, optionally a custom ppt scheme
-			// is also allowed
-		default:
+		if !isPPTSchemeValid(pptScheme) {
 			return ErrPPTSchemeInvalid
 		}
 
@@ -753,14 +753,10 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 			// It's protocol violation, so we need to abort connection
 			// But as we did not send anything to the router
 			// let's just err client
-			return nil, ErrPPTNotSupported
+			return nil, ErrPPTNotSupportedByRouter
 		}
 
-		switch {
-		case pptScheme == "wamp" || pptScheme == "mqtt" || strings.HasPrefix(pptScheme, "x_"):
-			// passthru of wamp and mqtt is supported by default, optionally a custom ppt scheme
-			// is also allowed
-		default:
+		if !isPPTSchemeValid(pptScheme) {
 			return nil, ErrPPTSchemeInvalid
 		}
 
@@ -812,19 +808,15 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 				// It's protocol violation, so we need to abort connection
 				abortMsg := wamp.Abort{Reason: wamp.ErrProtocolViolation}
 				abortMsg.Details = wamp.Dict{
-					"error": ErrPPTNotSupported.Error(),
+					"error": ErrPPTNotSupportedByRouter.Error(),
 				}
 				abortMsg.Details[wamp.OptMessage] = "Peer is trying to use Payload Passthru Mode while it was not announced during HELLO handshake"
 				c.sess.Peer.Send(&abortMsg)
 				c.sess.Peer.Close()
-				return nil, ErrPPTNotSupported
+				return nil, ErrPPTNotSupportedByRouter
 			}
 
-			switch {
-			case pptScheme == "wamp" || pptScheme == "mqtt" || strings.HasPrefix(pptScheme, "x_"):
-				// passthru of wamp and mqtt is supported by default, optionally a custom ppt scheme
-				// is also allowed
-			default:
+			if !isPPTSchemeValid(pptScheme) {
 				return nil, ErrPPTSchemeInvalid
 			}
 
@@ -1384,11 +1376,8 @@ func (c *Client) runHandleEvent(msg *wamp.Event) {
 	// we can not reply with error, only log it.
 	// Although the router should handle it
 	if pptScheme, _ := msg.Details[wamp.OptPPTScheme].(string); pptScheme != "" {
-		switch {
-		case pptScheme == "wamp" || pptScheme == "mqtt" || strings.HasPrefix(pptScheme, "x_"):
-			// passthru of wamp and mqtt is supported by default, optionally a custom ppt scheme
-			// is also allowed
-		default:
+
+		if !isPPTSchemeValid(pptScheme) {
 			c.log.Print(ErrPPTSchemeInvalid.Error())
 			return
 		}
@@ -1450,11 +1439,7 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 	// @see https://wamp-proto.org/wamp_latest_ietf.html#name-payload-passthru-mode
 	if pptScheme, _ := msg.Details[wamp.OptPPTScheme].(string); pptScheme != "" {
 
-		switch {
-		case pptScheme == "wamp" || pptScheme == "mqtt" || strings.HasPrefix(pptScheme, "x_"):
-			// passthru of wamp and mqtt is supported by default, optionally a custom ppt scheme
-			// is also allowed
-		default:
+		if !isPPTSchemeValid(pptScheme) {
 			c.sess.Send(&wamp.Error{
 				Type:      wamp.INVOCATION,
 				Request:   reqID,
@@ -1596,7 +1581,7 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 				// It's protocol violation, so we need to abort connection
 				abortMsg := wamp.Abort{Reason: wamp.ErrProtocolViolation}
 				abortMsg.Details = wamp.Dict{
-					"error": ErrPPTNotSupported.Error(),
+					"error": ErrPPTNotSupportedByRouter.Error(),
 				}
 				abortMsg.Details[wamp.OptMessage] = "Peer is trying to use Payload Passthru Mode while it was not announced during HELLO handshake"
 				c.sess.Peer.Send(&abortMsg)
@@ -1604,11 +1589,7 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 				return
 			}
 
-			switch {
-			case pptScheme == "wamp" || pptScheme == "mqtt" || strings.HasPrefix(pptScheme, "x_"):
-				// passthru of wamp and mqtt is supported by default, optionally a custom ppt scheme
-				// is also allowed
-			default:
+			if !isPPTSchemeValid(pptScheme) {
 				c.sess.SendCtx(c.ctx, &wamp.Error{
 					Type:    wamp.INVOCATION,
 					Request: reqID,

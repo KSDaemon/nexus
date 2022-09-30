@@ -2,7 +2,6 @@ package router
 
 import (
 	"fmt"
-
 	"github.com/gammazero/nexus/v3/stdlog"
 	"github.com/gammazero/nexus/v3/wamp"
 )
@@ -146,7 +145,7 @@ func (b *broker) publish(pub *wamp.Session, msg *wamp.Publish) {
 			// It's protocol violation, so we need to abort connection
 			abortMsg := wamp.Abort{Reason: wamp.ErrProtocolViolation}
 			abortMsg.Details = wamp.Dict{}
-			abortMsg.Details[wamp.OptMessage] = "Peer is trying to use Payload PassThru Mode while it was not announced during HELLO handshake"
+			abortMsg.Details[wamp.OptMessage] = ErrPPTNotSupportedByPeer.Error()
 			pub.Peer.Send(&abortMsg)
 			pub.Peer.Close()
 
@@ -155,16 +154,7 @@ func (b *broker) publish(pub *wamp.Session, msg *wamp.Publish) {
 
 		// Every side supports PPT feature
 		// Let's fill PPT options for callee
-		details[wamp.OptPPTScheme] = pptScheme
-		if val, ok := msg.Options[wamp.OptPPTSerializer]; ok {
-			details[wamp.OptPPTSerializer] = val.(string)
-		}
-		if val, ok := msg.Options[wamp.OptPPTCipher]; ok {
-			details[wamp.OptPPTCipher] = val.(string)
-		}
-		if val, ok := msg.Options[wamp.OptPPTKeyId]; ok {
-			details[wamp.OptPPTKeyId] = val.(string)
-		}
+		pptOptionsToDetails(msg.Options, details)
 	}
 
 	excludePub := true

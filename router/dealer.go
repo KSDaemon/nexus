@@ -689,12 +689,6 @@ func (d *dealer) syncCall(caller *wamp.Session, msg *wamp.Call) {
 		// Let's check: was ppt feature announced by caller?
 		if !caller.HasFeature(wamp.RoleCaller, wamp.FeaturePayloadPassthruMode) {
 			// It's protocol violation, so we need to abort connection
-			//d.trySend(caller, &wamp.Error{
-			//	Type:    msg.MessageType(),
-			//	Request: msg.Request,
-			//	Details: wamp.Dict{},
-			//	Error:   wamp.ErrProtocolViolation,
-			//})
 			abortMsg := wamp.Abort{Reason: wamp.ErrProtocolViolation}
 			abortMsg.Details = wamp.Dict{}
 			abortMsg.Details[wamp.OptMessage] = "Peer is trying to use Payload PassThru Mode while it was not announced during HELLO handshake"
@@ -717,16 +711,7 @@ func (d *dealer) syncCall(caller *wamp.Session, msg *wamp.Call) {
 
 		// Every side supports PPT feature
 		// Let's fill PPT options for callee
-		details[wamp.OptPPTScheme] = pptScheme
-		if val, ok := msg.Options[wamp.OptPPTSerializer]; ok {
-			details[wamp.OptPPTSerializer] = val.(string)
-		}
-		if val, ok := msg.Options[wamp.OptPPTCipher]; ok {
-			details[wamp.OptPPTCipher] = val.(string)
-		}
-		if val, ok := msg.Options[wamp.OptPPTKeyId]; ok {
-			details[wamp.OptPPTKeyId] = val.(string)
-		}
+		pptOptionsToDetails(msg.Options, details)
 	}
 
 	// If the callee has requested disclosure of caller identity when the
@@ -1006,16 +991,19 @@ func (d *dealer) syncYield(callee *wamp.Session, msg *wamp.Yield, progress, canR
 
 		// Let's check: was ppt feature announced by callee?
 		if !callee.HasFeature(wamp.RoleCallee, wamp.FeaturePayloadPassthruMode) {
+			// Let's notify caller that CALL was erred
+			d.trySend(caller, &wamp.Error{
+				Type:    msg.MessageType(),
+				Request: msg.Request,
+				Details: wamp.Dict{
+					"error": ErrPPTNotSupportedByPeer.Error(),
+				},
+				Error: wamp.ErrFeatureNotSupported,
+			})
 			// It's protocol violation, so we need to abort connection
-			//d.trySend(callee, &wamp.Error{
-			//	Type:    msg.MessageType(),
-			//	Request: msg.Request,
-			//	Details: wamp.Dict{},
-			//	Error:   wamp.ErrProtocolViolation,
-			//})
 			abortMsg := wamp.Abort{Reason: wamp.ErrProtocolViolation}
 			abortMsg.Details = wamp.Dict{}
-			abortMsg.Details[wamp.OptMessage] = "Peer is trying to use Payload PassThru Mode while it was not announced during HELLO handshake"
+			abortMsg.Details[wamp.OptMessage] = ErrPPTNotSupportedByPeer.Error()
 			callee.Peer.Send(&abortMsg)
 			callee.Peer.Close()
 
@@ -1027,8 +1015,10 @@ func (d *dealer) syncYield(callee *wamp.Session, msg *wamp.Yield, progress, canR
 			d.trySend(callee, &wamp.Error{
 				Type:    msg.MessageType(),
 				Request: msg.Request,
-				Details: wamp.Dict{},
-				Error:   wamp.ErrFeatureNotSupported,
+				Details: wamp.Dict{
+					"error": ErrPPTNotSupportedByPeer.Error(),
+				},
+				Error: wamp.ErrFeatureNotSupported,
 			})
 			return false
 		}

@@ -58,15 +58,6 @@ func (s *MessagePackSerializer) SerializeDataItem(item interface{}) ([]byte, err
 }
 
 // DeserializeDataItem decodes a json payload into an object/structure.
-func (s *MessagePackSerializer) DeserializeDataItem(data []byte, castTo interface{}) (interface{}, error) {
-	var v interface{}
-	if castTo != nil {
-		v = castTo
-	}
-	err := codec.NewDecoderBytes(data, mh).Decode(&v)
-	if err != nil {
-		return nil, err
-	}
-
-	return v, nil
+func (s *MessagePackSerializer) DeserializeDataItem(data []byte, castTo interface{}) error {
+	return codec.NewDecoderBytes(data, mh).Decode(&castTo)
 }

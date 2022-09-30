@@ -55,17 +55,8 @@ func (s *JSONSerializer) SerializeDataItem(item interface{}) ([]byte, error) {
 }
 
 // DeserializeDataItem decodes a json payload into an object/structure.
-func (s *JSONSerializer) DeserializeDataItem(data []byte, castTo interface{}) (interface{}, error) {
-	var v interface{}
-	if castTo != nil {
-		v = castTo
-	}
-	err := codec.NewDecoderBytes(data, jh).Decode(&v)
-	if err != nil {
-		return nil, err
-	}
-
-	return v, nil
+func (s *JSONSerializer) DeserializeDataItem(data []byte, castTo interface{}) error {
+	return codec.NewDecoderBytes(data, jh).Decode(&castTo)
 }
 
 // Binary data follows a convention for conversion to JSON strings.

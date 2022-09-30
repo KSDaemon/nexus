@@ -46,11 +46,11 @@ func detailRolesFeatures() wamp.Dict {
 func compareDeserializedSerializedDataItem(t *testing.T, item interface{}) {
 	resA, ok := item.([]interface{})
 	if !ok {
-		t.Fatal("desrialization to array error: ")
+		t.Fatal("deserialization to array error: ")
 	}
 	resT, ok := resA[0].(map[string]interface{})
 	if !ok {
-		t.Fatal("desrialization to hash-table error: ")
+		t.Fatal("deserialization to hash-table error: ")
 	}
 
 	arr, ok := resT["Arguments"].([]interface{})
@@ -193,8 +193,8 @@ func TestJSONSerializeDataItem(t *testing.T) {
 		t.Fatal("no serialized data")
 	}
 
-	res, err := s.DeserializeDataItem(b, nil)
-	if err != nil {
+	var res interface{}
+	if err := s.DeserializeDataItem(b, &res); err != nil {
 		t.Fatal("desrialization error: ", err)
 	}
 
@@ -205,8 +205,8 @@ func TestJSONDeserializeDataItem(t *testing.T) {
 	s := &JSONSerializer{}
 
 	data := `[{"Arguments":[1,"2",true],"ArgumentsKw":{"prop1":1,"prop2":"2","prop3":true}}]`
-	msg, err := s.DeserializeDataItem([]byte(data), nil)
-	if err != nil {
+	var msg interface{}
+	if err := s.DeserializeDataItem([]byte(data), &msg); err != nil {
 		t.Fatalf("Error decoding good data: %s, %s", err, data)
 	}
 	compareDeserializedSerializedDataItem(t, msg)
@@ -215,8 +215,7 @@ func TestJSONDeserializeDataItem(t *testing.T) {
 		Arguments   wamp.List
 		ArgumentsKw wamp.Dict
 	}{}
-	_, err = s.DeserializeDataItem([]byte(data), castTo)
-	if err != nil {
+	if err := s.DeserializeDataItem([]byte(data), &castTo); err != nil {
 		t.Fatalf("Error decoding good data: %s, %s", err, data)
 	}
 }
@@ -293,8 +292,8 @@ func TestCBORSerializeDataItem(t *testing.T) {
 		t.Fatal("no serialized data")
 	}
 
-	res, err := s.DeserializeDataItem(b, nil)
-	if err != nil {
+	var res interface{}
+	if err := s.DeserializeDataItem(b, &res); err != nil {
 		t.Fatal("desrialization error: ", err)
 	}
 	compareDeserializedSerializedDataItem(t, res)
@@ -311,8 +310,8 @@ func TestCBORDeserializeDataItem(t *testing.T) {
 		0x6F, 0x70, 0x31, 0x01, 0x65, 0x70, 0x72, 0x6F, 0x70, 0x32, 0x61,
 		0x32, 0x65, 0x70, 0x72, 0x6F, 0x70, 0x33, 0xf5,
 	}
-	msg, err := s.DeserializeDataItem(data, nil)
-	if err != nil {
+	var msg interface{}
+	if err := s.DeserializeDataItem(data, &msg); err != nil {
 		t.Fatalf("Error decoding good data: %s, %x", err, data)
 	}
 	compareDeserializedSerializedDataItem(t, msg)
@@ -321,8 +320,7 @@ func TestCBORDeserializeDataItem(t *testing.T) {
 		Arguments   wamp.List
 		ArgumentsKw wamp.Dict
 	}{}
-	_, err = s.DeserializeDataItem(data, castTo)
-	if err != nil {
+	if err := s.DeserializeDataItem(data, &castTo); err != nil {
 		t.Fatalf("Error decoding good data: %s, %s", err, data)
 	}
 }
@@ -392,8 +390,8 @@ func TestMessagePackSerializeDataItem(t *testing.T) {
 	if len(b) == 0 {
 		t.Fatal("no serialized data")
 	}
-	res, err := s.DeserializeDataItem(b, nil)
-	if err != nil {
+	var res interface{}
+	if err := s.DeserializeDataItem(b, &res); err != nil {
 		t.Fatal("desrialization error: ", err)
 	}
 	compareDeserializedSerializedDataItem(t, res)
@@ -410,8 +408,8 @@ func TestMessagePackDeserializeDataItem(t *testing.T) {
 		0x6F, 0x70, 0x32, 0xA1, 0x32, 0xA5, 0x70, 0x72, 0x6F, 0x70,
 		0x33, 0xC3,
 	}
-	msg, err := s.DeserializeDataItem(data, nil)
-	if err != nil {
+	var msg interface{}
+	if err := s.DeserializeDataItem(data, &msg); err != nil {
 		t.Fatalf("Error decoding good data: %s, %x", err, data)
 	}
 	compareDeserializedSerializedDataItem(t, msg)
@@ -420,8 +418,7 @@ func TestMessagePackDeserializeDataItem(t *testing.T) {
 		Arguments   wamp.List
 		ArgumentsKw wamp.Dict
 	}{}
-	_, err = s.DeserializeDataItem(data, castTo)
-	if err != nil {
+	if err := s.DeserializeDataItem(data, &castTo); err != nil {
 		t.Fatalf("Error decoding good data: %s, %s", err, data)
 	}
 }
