@@ -13,8 +13,8 @@ import (
 )
 
 var dataItem = []map[string]interface{}{{
-	"Arguments":   []interface{}{1, "2", true},
-	"ArgumentsKw": map[string]interface{}{"prop1": 1, "prop2": "2", "prop3": true},
+	"Arguments":   wamp.List{1, "2", true},
+	"ArgumentsKw": wamp.Dict{"prop1": 1, "prop2": "2", "prop3": true},
 }}
 
 func hasRole(details wamp.Dict, role string) bool {
@@ -211,12 +211,30 @@ func TestJSONDeserializeDataItem(t *testing.T) {
 	}
 	compareDeserializedSerializedDataItem(t, msg)
 
-	castTo := &[]struct {
+	var val []struct {
 		Arguments   wamp.List
 		ArgumentsKw wamp.Dict
-	}{}
-	if err := s.DeserializeDataItem([]byte(data), &castTo); err != nil {
+	}
+	if err := s.DeserializeDataItem([]byte(data), &val); err != nil {
 		t.Fatalf("Error decoding good data: %s, %s", err, data)
+	}
+	expected := []struct {
+		Arguments   wamp.List
+		ArgumentsKw wamp.Dict
+	}{
+		{
+			Arguments: []interface{}{
+				uint64(1), "2", true,
+			},
+			ArgumentsKw: map[string]interface{}{
+				"prop1": uint64(1), "prop2": "2", "prop3": true,
+			},
+		},
+	}
+	eq := reflect.DeepEqual(val, expected)
+	if !eq {
+		t.Fatalf("should be true, expected:\n%v\ngot:\n%v",
+			spew.Sdump(expected), spew.Sdump(val))
 	}
 }
 
@@ -316,12 +334,30 @@ func TestCBORDeserializeDataItem(t *testing.T) {
 	}
 	compareDeserializedSerializedDataItem(t, msg)
 
-	castTo := &[]struct {
+	var val []struct {
 		Arguments   wamp.List
 		ArgumentsKw wamp.Dict
-	}{}
-	if err := s.DeserializeDataItem(data, &castTo); err != nil {
+	}
+	if err := s.DeserializeDataItem(data, &val); err != nil {
 		t.Fatalf("Error decoding good data: %s, %s", err, data)
+	}
+	expected := []struct {
+		Arguments   wamp.List
+		ArgumentsKw wamp.Dict
+	}{
+		{
+			Arguments: []interface{}{
+				uint64(1), "2", true,
+			},
+			ArgumentsKw: map[string]interface{}{
+				"prop1": uint64(1), "prop2": "2", "prop3": true,
+			},
+		},
+	}
+	eq := reflect.DeepEqual(val, expected)
+	if !eq {
+		t.Fatalf("should be true, expected:\n%v\ngot:\n%v",
+			spew.Sdump(expected), spew.Sdump(val))
 	}
 }
 
@@ -414,12 +450,30 @@ func TestMessagePackDeserializeDataItem(t *testing.T) {
 	}
 	compareDeserializedSerializedDataItem(t, msg)
 
-	castTo := &[]struct {
+	var val []struct {
 		Arguments   wamp.List
 		ArgumentsKw wamp.Dict
-	}{}
-	if err := s.DeserializeDataItem(data, &castTo); err != nil {
+	}
+	if err := s.DeserializeDataItem(data, &val); err != nil {
 		t.Fatalf("Error decoding good data: %s, %s", err, data)
+	}
+	expected := []struct {
+		Arguments   wamp.List
+		ArgumentsKw wamp.Dict
+	}{
+		{
+			Arguments: []interface{}{
+				int64(1), "2", true,
+			},
+			ArgumentsKw: map[string]interface{}{
+				"prop1": int64(1), "prop2": "2", "prop3": true,
+			},
+		},
+	}
+	eq := reflect.DeepEqual(val, expected)
+	if !eq {
+		t.Fatalf("should be true, expected:\n%v\ngot:\n%v",
+			spew.Sdump(expected), spew.Sdump(val))
 	}
 }
 

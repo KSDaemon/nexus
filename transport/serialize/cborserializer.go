@@ -54,6 +54,6 @@ func (s *CBORSerializer) SerializeDataItem(item interface{}) ([]byte, error) {
 }
 
 // DeserializeDataItem decodes a json payload into an object/structure.
-func (s *CBORSerializer) DeserializeDataItem(data []byte, castTo interface{}) error {
-	return codec.NewDecoderBytes(data, ch).Decode(&castTo)
+func (s *CBORSerializer) DeserializeDataItem(data []byte, v interface{}) error {
+	return codec.NewDecoderBytes(data, ch).Decode(&v)
 }

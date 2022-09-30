@@ -10,6 +10,7 @@ const (
 	OptInvoke          = "invoke"
 	OptMatch           = "match"
 	OptMessage         = "message"
+	OptError           = "error"
 	OptMode            = "mode"
 	OptProcedure       = "procedure"
 	OptProgress        = "progress"

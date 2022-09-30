@@ -806,11 +806,13 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 			// Let's check: was ppt feature announced by dealer?
 			if !c.sess.HasFeature(wamp.RoleDealer, wamp.FeaturePayloadPassthruMode) {
 				// It's protocol violation, so we need to abort connection
-				abortMsg := wamp.Abort{Reason: wamp.ErrProtocolViolation}
-				abortMsg.Details = wamp.Dict{
-					"error": ErrPPTNotSupportedByRouter.Error(),
+				abortMsg := wamp.Abort{
+					Reason: wamp.ErrProtocolViolation,
+					Details: wamp.Dict{
+						wamp.OptError:   ErrPPTNotSupportedByRouter.Error(),
+						wamp.OptMessage: ErrPPTNotSupportedByPeer.Error(),
+					},
 				}
-				abortMsg.Details[wamp.OptMessage] = "Peer is trying to use Payload Passthru Mode while it was not announced during HELLO handshake"
 				c.sess.Peer.Send(&abortMsg)
 				c.sess.Peer.Close()
 				return nil, ErrPPTNotSupportedByRouter
@@ -1579,11 +1581,13 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 			// Let's check: was ppt feature announced by dealer?
 			if !c.sess.HasFeature(wamp.RoleDealer, wamp.FeaturePayloadPassthruMode) {
 				// It's protocol violation, so we need to abort connection
-				abortMsg := wamp.Abort{Reason: wamp.ErrProtocolViolation}
-				abortMsg.Details = wamp.Dict{
-					"error": ErrPPTNotSupportedByRouter.Error(),
+				abortMsg := wamp.Abort{
+					Reason: wamp.ErrProtocolViolation,
+					Details: wamp.Dict{
+						wamp.OptError:   ErrPPTNotSupportedByRouter.Error(),
+						wamp.OptMessage: ErrPPTNotSupportedByPeer.Error(),
+					},
 				}
-				abortMsg.Details[wamp.OptMessage] = "Peer is trying to use Payload Passthru Mode while it was not announced during HELLO handshake"
 				c.sess.Peer.Send(&abortMsg)
 				c.sess.Peer.Close()
 				return
