@@ -815,11 +815,11 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 				}
 				c.sess.Peer.Send(&abortMsg)
 				c.sess.Peer.Close()
-				return nil, ErrPPTNotSupportedByRouter
+				return nil, fmt.Errorf("cannot process unexpected passthrough result: %v", ErrPPTNotSupportedByRouter)
 			}
 
 			if !isPPTSchemeValid(pptScheme) {
-				return nil, ErrPPTSchemeInvalid
+				return nil, fmt.Errorf("cannot process result with invalid ppt scheme %q: %v", pptScheme, ErrPPTSchemeInvalid)
 			}
 
 			var args wamp.List
@@ -1380,7 +1380,7 @@ func (c *Client) runHandleEvent(msg *wamp.Event) {
 	if pptScheme, _ := msg.Details[wamp.OptPPTScheme].(string); pptScheme != "" {
 
 		if !isPPTSchemeValid(pptScheme) {
-			c.log.Print(ErrPPTSchemeInvalid.Error())
+			c.log.Print(fmt.Sprintf("cannot process even with invalid ppt schema %q: %v", pptScheme, ErrPPTSchemeInvalid))
 			return
 		}
 
@@ -1397,7 +1397,7 @@ func (c *Client) runHandleEvent(msg *wamp.Event) {
 		}
 
 		if err != nil {
-			c.log.Print(err.Error())
+			c.log.Print(fmt.Sprintf("cannot unpack event: %v", err))
 			return
 		}
 
@@ -1449,7 +1449,7 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 				Error:     wamp.ErrInvalidArgument,
 				Arguments: wamp.List{ErrPPTSchemeInvalid.Error()},
 			})
-			c.log.Print(ErrPPTSchemeInvalid.Error())
+			c.log.Print(fmt.Sprintf("cannot process invocation with invalid ppt schema %q: %v", pptScheme, ErrPPTSchemeInvalid))
 			return
 		}
 
@@ -1473,7 +1473,7 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 				Error:     wamp.ErrInvalidArgument,
 				Arguments: wamp.List{err.Error()},
 			})
-			c.log.Print(ErrSerialization.Error())
+			c.log.Print(fmt.Sprintf("cannot unpack invocation message: %v", err))
 			return
 		}
 
