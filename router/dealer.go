@@ -29,6 +29,7 @@ var dealerRole = wamp.Dict{
 		wamp.FeatureCallerIdent:         true,
 		wamp.FeaturePatternBasedReg:     true,
 		wamp.FeatureProgCallResults:     true,
+		wamp.FeatureProgressiveCalls:    true,
 		wamp.FeatureSessionMetaAPI:      true,
 		wamp.FeatureSharedReg:           true,
 		wamp.FeatureRegMetaAPI:          true,

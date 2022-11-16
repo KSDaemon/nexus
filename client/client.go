@@ -653,6 +653,13 @@ func (c *Client) Unregister(procedure string) error {
 // handle progressive results while Call is waiting for a final response.
 type ProgressHandler func(*wamp.Result)
 
+// ResultHandler is a type of function that is registered to asynchronously
+// handle final call results. In case of call fail - error will be filled
+type ResultHandler func(*wamp.Result, error)
+
+// SendProgressiveData is a callback function for feeding a progressive call data
+type SendProgressiveData func(options wamp.Dict, args wamp.List, kwargs wamp.Dict, isLast bool) error
+
 // Call calls the procedure corresponding to the given URI.
 //
 // If an ERROR message is received from the router, the error value returned
@@ -748,40 +755,10 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 		Options:   options,
 	}
 
-	// Check and handle Payload PassThru Mode
-	// @see https://wamp-proto.org/wamp_latest_ietf.html#name-payload-passthru-mode
-	if pptScheme, _ := options[wamp.OptPPTScheme].(string); pptScheme != "" {
-		// Let's check: was ppt feature announced by dealer?
-		if !c.sess.HasFeature(wamp.RoleDealer, wamp.FeaturePayloadPassthruMode) {
-			// It's protocol violation, so we need to abort connection
-			// But as we did not send anything to the router
-			// let's just err client
-			return nil, ErrPPTNotSupportedByRouter
-		}
+	err := c.prepareCallPayloadMessage(message, options, args, kwargs)
 
-		if !isPPTSchemeValid(pptScheme) {
-			return nil, ErrPPTSchemeInvalid
-		}
-
-		// Dealer supports PPT feature
-		// Let's prepare payload based on ppt_* attributes provided
-		var payload wamp.List
-		var err error
-		if pptScheme == WampPPTScheme {
-			payload, err = packE2EEPayload(options, args, kwargs)
-		} else {
-			payload, err = packPPTPayload(options, args, kwargs)
-		}
-
-		if err != nil {
-			return nil, err
-		}
-
-		message.Arguments = payload
-
-	} else {
-		message.Arguments = args
-		message.ArgumentsKw = kwargs
+	if err != nil {
+		return nil, err
 	}
 
 	c.sess.Send(message)
@@ -803,53 +780,148 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 	switch msg := msg.(type) {
 	case *wamp.Result:
 
-		// Check and handle Payload PassThru Mode
-		// @see https://wamp-proto.org/wamp_latest_ietf.html#name-payload-passthru-mode
-		if pptScheme, _ := msg.Details[wamp.OptPPTScheme].(string); pptScheme != "" {
-			// Let's check: was ppt feature announced by dealer?
-			if !c.sess.HasFeature(wamp.RoleDealer, wamp.FeaturePayloadPassthruMode) {
-				// It's protocol violation, so we need to abort connection
-				abortMsg := wamp.Abort{
-					Reason: wamp.ErrProtocolViolation,
-					Details: wamp.Dict{
-						wamp.OptError:   ErrPPTNotSupportedByRouter.Error(),
-						wamp.OptMessage: ErrPPTNotSupportedByPeer.Error(),
-					},
-				}
-				c.sess.Peer.Send(&abortMsg)
-				c.sess.Peer.Close()
-				return nil, fmt.Errorf("cannot process unexpected passthrough result: %w", ErrPPTNotSupportedByRouter)
-			}
+		err := c.prepareCallResultMessage(msg)
 
-			if !isPPTSchemeValid(pptScheme) {
-				return nil, fmt.Errorf("cannot process result with invalid ppt scheme %q: %w", pptScheme, ErrPPTSchemeInvalid)
-			}
-
-			var args wamp.List
-			var kwargs wamp.Dict
-			var err error
-
-			// Now need to check ppt_serializer (in pair with ppt_scheme)
-			// and deserialize payload with appreciate serializer
-			if pptScheme == WampPPTScheme {
-				args, kwargs, err = unpackE2EEPayload(msg.Details, msg.Arguments)
-			} else {
-				args, kwargs, err = unpackPPTPayload(msg.Details, msg.Arguments)
-			}
-
-			if err != nil {
-				return nil, err
-			}
-
-			msg.Arguments = args
-			msg.ArgumentsKw = kwargs
+		if err != nil {
+			return nil, err
 		}
+
 		return msg, nil
 	case *wamp.Error:
 		return nil, RPCError{msg, procedure}
 	default:
 		return nil, unexpectedMsgError(msg, wamp.RESULT)
 	}
+}
+
+// CallProgressive makes progressive calls to the procedure corresponding to
+// the given URI.
+//
+// @see full description for Call method above. The only difference is that this
+// method returns a callback that client code may call to pass a progressive chunks
+// of data to the Callee. Also, please note that all progressive results (if they
+// will be at all) will be returned using progcb callback and the final result will be
+// returned using finalrescb callback
+//
+// This function returns a callback function that should be called with payload data chunks
+// To finish a progressive call the last callback MUST be called with isLast = true
+func (c *Client) CallProgressive(ctx context.Context, procedure string, options wamp.Dict, args wamp.List, kwargs wamp.Dict, finalrescb ResultHandler, progcb ProgressHandler) (SendProgressiveData, error) { //nolint:lll
+	if !c.Connected() {
+		return nil, ErrNotConn
+	}
+
+	if !c.sess.HasFeature(wamp.RoleDealer, wamp.FeatureProgressiveCalls) {
+		return nil, ErrProgCallNotSupportedByRouter
+	}
+
+	if options == nil {
+		options = wamp.Dict{}
+	}
+
+	options[wamp.OptProgress] = true
+
+	// If caller is willing to receive progressive results, create a channel to
+	// receive these on.  Then, start a goroutine to receive progressive
+	// results and call the callback for each.
+	var progChan chan *wamp.Result
+	var progDone chan struct{}
+	if progcb != nil {
+		options[wamp.OptReceiveProgress] = true
+		progChan = make(chan *wamp.Result)
+		progDone = make(chan struct{})
+		go func() {
+			for result := range progChan {
+				progcb(result)
+			}
+			close(progDone)
+		}()
+	}
+
+	if finalrescb == nil {
+		return nil, errors.New("no result handler provided")
+	}
+
+	id := c.idGen.Next()
+	c.expectReply(id)
+	message := &wamp.Call{
+		Request:   id,
+		Procedure: wamp.URI(procedure),
+		Options:   options,
+	}
+
+	err := c.prepareCallPayloadMessage(message, options, args, kwargs)
+
+	if err != nil {
+		return nil, err
+	}
+
+	c.sess.Send(message)
+
+	// As we can not wait for final result and must return control to the client code
+	// we wait for result in goroutine
+	go func() {
+		// Wait to receive RESULT message.
+		msg, err := c.waitForReplyWithCancel(ctx, id, procedure, progChan)
+
+		// Finish handling any remaining progressive results before returning the
+		// final result.
+		if progcb != nil {
+			close(progChan)
+			<-progDone
+		}
+
+		if err != nil {
+			finalrescb(nil, err)
+			return
+		}
+
+		switch msg := msg.(type) {
+		case *wamp.Result:
+
+			err := c.prepareCallResultMessage(msg)
+
+			if err != nil {
+				finalrescb(nil, err)
+				return
+			}
+
+			finalrescb(msg, nil)
+			return
+		case *wamp.Error:
+			finalrescb(nil, RPCError{msg, procedure})
+			return
+		default:
+			finalrescb(nil, unexpectedMsgError(msg, wamp.RESULT))
+			return
+		}
+	}()
+
+	// now we need to return callback for feeding the progressive data
+	sendProgressiveData := func(options wamp.Dict, args wamp.List, kwargs wamp.Dict, isLast bool) error {
+		if options == nil {
+			options = wamp.Dict{}
+		}
+
+		options[wamp.OptProgress] = isLast
+
+		message := &wamp.Call{
+			Request:   id,
+			Procedure: wamp.URI(procedure),
+			Options:   options,
+		}
+
+		err := c.prepareCallPayloadMessage(message, options, args, kwargs)
+
+		if err != nil {
+			return err
+		}
+
+		c.sess.Send(message)
+
+		return nil
+	}
+
+	return sendProgressiveData, nil
 }
 
 // SetCallCancelMode sets the client's call cancel mode to one of the
@@ -1680,4 +1752,90 @@ func (c *Client) runSignalReply(msg wamp.Message, requestID wamp.ID) {
 	case w <- msg:
 	case <-c.Done():
 	}
+}
+
+func (c *Client) prepareCallPayloadMessage(msg *wamp.Call, options wamp.Dict, args wamp.List, kwargs wamp.Dict) error {
+	// Check and handle Payload PassThru Mode
+	// @see https://wamp-proto.org/wamp_latest_ietf.html#name-payload-passthru-mode
+	if pptScheme, _ := options[wamp.OptPPTScheme].(string); pptScheme != "" {
+		// Let's check: was ppt feature announced by dealer?
+		if !c.sess.HasFeature(wamp.RoleDealer, wamp.FeaturePayloadPassthruMode) {
+			// It's protocol violation, so we need to abort connection
+			// But as we did not send anything to the router
+			// let's just err client
+			return ErrPPTNotSupportedByRouter
+		}
+
+		if !isPPTSchemeValid(pptScheme) {
+			return ErrPPTSchemeInvalid
+		}
+
+		// Dealer supports PPT feature
+		// Let's prepare payload based on ppt_* attributes provided
+		var payload wamp.List
+		var err error
+		if pptScheme == WampPPTScheme {
+			payload, err = packE2EEPayload(options, args, kwargs)
+		} else {
+			payload, err = packPPTPayload(options, args, kwargs)
+		}
+
+		if err != nil {
+			return err
+		}
+
+		msg.Arguments = payload
+
+	} else {
+		msg.Arguments = args
+		msg.ArgumentsKw = kwargs
+	}
+
+	return nil
+}
+
+func (c *Client) prepareCallResultMessage(msg *wamp.Result) error {
+	// Check and handle Payload PassThru Mode
+	// @see https://wamp-proto.org/wamp_latest_ietf.html#name-payload-passthru-mode
+	if pptScheme, _ := msg.Details[wamp.OptPPTScheme].(string); pptScheme != "" {
+		// Let's check: was ppt feature announced by dealer?
+		if !c.sess.HasFeature(wamp.RoleDealer, wamp.FeaturePayloadPassthruMode) {
+			// It's protocol violation, so we need to abort connection
+			abortMsg := wamp.Abort{
+				Reason: wamp.ErrProtocolViolation,
+				Details: wamp.Dict{
+					wamp.OptError:   ErrPPTNotSupportedByRouter.Error(),
+					wamp.OptMessage: ErrPPTNotSupportedByPeer.Error(),
+				},
+			}
+			c.sess.Peer.Send(&abortMsg)
+			c.sess.Peer.Close()
+			return fmt.Errorf("cannot process unexpected passthrough result: %w", ErrPPTNotSupportedByRouter)
+		}
+
+		if !isPPTSchemeValid(pptScheme) {
+			return fmt.Errorf("cannot process result with invalid ppt scheme %q: %w", pptScheme, ErrPPTSchemeInvalid)
+		}
+
+		var args wamp.List
+		var kwargs wamp.Dict
+		var err error
+
+		// Now need to check ppt_serializer (in pair with ppt_scheme)
+		// and deserialize payload with appreciate serializer
+		if pptScheme == WampPPTScheme {
+			args, kwargs, err = unpackE2EEPayload(msg.Details, msg.Arguments)
+		} else {
+			args, kwargs, err = unpackPPTPayload(msg.Details, msg.Arguments)
+		}
+
+		if err != nil {
+			return err
+		}
+
+		msg.Arguments = args
+		msg.ArgumentsKw = kwargs
+	}
+
+	return nil
 }
