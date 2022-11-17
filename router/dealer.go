@@ -667,8 +667,7 @@ func (d *dealer) syncCall(caller *wamp.Session, msg *wamp.Call) {
 			case wamp.InvokeLast:
 				callee = reg.callees[len(reg.callees)-1]
 			default:
-				errMsg := fmt.Sprint("multiple callees registered for ",
-					msg.Procedure, " with '", wamp.InvokeSingle, "' policy")
+				errMsg := fmt.Sprintf("multiple callees registered for %s with '%s' policy", msg.Procedure, wamp.InvokeSingle)
 				// This is disallowed by the dealer, and is a programming error if
 				// it ever happened, so panic.
 				panic(errMsg)

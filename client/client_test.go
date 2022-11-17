@@ -883,14 +883,12 @@ func TestProgressiveCallsAndResults(t *testing.T) {
 	// Handler sends progressive results.
 	invocationHandler := func(ctx context.Context, inv *wamp.Invocation) InvokeResult {
 
-		fmt.Println("invocationHandler:", inv, ctx)
-
 		if isInProgress, _ := inv.Details[wamp.OptProgress].(bool); !isInProgress {
 			return InvokeResult{Args: inv.Arguments}
 		} else {
 			senderr := callee.SendProgress(ctx, inv.Arguments, nil)
 			if senderr != nil {
-				fmt.Println("Error sending progress:", senderr)
+				callee.log.Println("Error sending progress:", senderr)
 				return InvokeResult{Err: "test.failed"}
 			}
 		}

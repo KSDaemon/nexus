@@ -911,9 +911,7 @@ func (c *Client) CallProgressive(ctx context.Context, procedure string, options 
 			Options:   options,
 		}
 
-		err := c.prepareCallPayloadMessage(message, options, args, kwargs)
-
-		if err != nil {
+		if err := c.prepareCallPayloadMessage(message, options, args, kwargs); err != nil {
 			return err
 		}
 
