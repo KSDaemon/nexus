@@ -695,6 +695,7 @@ func (d *dealer) syncCall(caller *wamp.Session, msg *wamp.Call) {
 		storedInvk := d.invocations[storedInvocationID]
 		storedInvk.inProgress = isInProgress
 		callee = storedInvk.callee
+		invocationID = storedInvocationID
 	}
 
 	details := wamp.Dict{}
