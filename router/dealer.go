@@ -990,7 +990,7 @@ func (d *dealer) syncYield(callee *wamp.Session, msg *wamp.Yield, progress, canR
 
 		// Clean up the invocation, unless need to retry.
 		defer func() {
-			if keepInvocation {
+			if keepInvocation || invk.inProgress {
 				return
 			}
 			delete(d.invocations, msg.Request)
