@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -789,11 +790,13 @@ func TestProgressiveCalls(t *testing.T) {
 	}
 
 	var progressiveIncPayload []int
+	var mu sync.Mutex
 
-	// Handler sends progressive results.
 	invocationHandler := func(ctx context.Context, inv *wamp.Invocation) InvokeResult {
 
+		mu.Lock()
 		progressiveIncPayload = append(progressiveIncPayload, inv.Arguments[0].(int))
+		mu.Unlock()
 
 		if isInProgress, _ := inv.Details[wamp.OptProgress].(bool); !isInProgress {
 			var sum int64
@@ -840,15 +843,119 @@ func TestProgressiveCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal("Failed to call procedure:", err)
 	}
+	time.Sleep(100 * time.Millisecond)
 
-	for _, arg := range callArgs[1:8] {
+	for _, arg := range callArgs[1:9] {
 		err := sendProgDataCb(nil, wamp.List{arg}, nil, false)
 		if err != nil {
 			t.Fatal("Failed to call procedure:", err)
 		}
+		time.Sleep(100 * time.Millisecond)
 	}
 
-	err = sendProgDataCb(nil, callArgs[9:], nil, false)
+	err = sendProgDataCb(nil, callArgs[9:], nil, true)
+	if err != nil {
+		t.Fatal("Failed to call procedure:", err)
+	}
+
+	select {
+	case <-waitChan:
+	case <-time.After(1000 * time.Millisecond):
+	}
+
+	// Test unregister.
+	if err = callee.Unregister(procName); err != nil {
+		t.Fatal("Failed to unregister procedure:", err)
+	}
+
+	caller.Close()
+	callee.Close()
+	r.Close()
+}
+
+func TestProgressiveCallsAndResults(t *testing.T) {
+	// Connect two clients to the same server
+	callee, caller, r, err := connectedTestClients()
+	if err != nil {
+		t.Fatal("failed to connect test clients:", err)
+	}
+
+	// Handler sends progressive results.
+	invocationHandler := func(ctx context.Context, inv *wamp.Invocation) InvokeResult {
+
+		fmt.Println("invocationHandler:", inv, ctx)
+
+		if isInProgress, _ := inv.Details[wamp.OptProgress].(bool); !isInProgress {
+			return InvokeResult{Args: inv.Arguments}
+		} else {
+			senderr := callee.SendProgress(ctx, inv.Arguments, nil)
+			if senderr != nil {
+				fmt.Println("Error sending progress:", senderr)
+				return InvokeResult{Err: "test.failed"}
+			}
+		}
+
+		return InvokeResult{Err: wamp.InternalProgressiveOmitResult}
+	}
+
+	procName := "nexus.test.progproc"
+
+	// Register procedure
+	if err = callee.Register(procName, invocationHandler, nil); err != nil {
+		t.Fatal("Failed to register procedure:", err)
+	}
+
+	// Test calling the procedure.
+	callArgs := wamp.List{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	ctx := context.Background()
+
+	waitChan := make(chan interface{})
+
+	var progressiveResults []int
+	var mu sync.Mutex
+
+	finalRescb := func(result *wamp.Result, err error) {
+		waitChan <- nil
+		if err != nil {
+			t.Fatal("Failed to call procedure:", err)
+		}
+
+		progressiveResults = append(progressiveResults, result.Arguments[0].(int))
+
+		var sum int64
+		for _, arg := range progressiveResults {
+			n, ok := wamp.AsInt64(arg)
+			if ok {
+				sum += n
+			}
+		}
+
+		if sum != 55 {
+			t.Fatal("Wrong result:", sum)
+		}
+	}
+
+	progRescb := func(result *wamp.Result) {
+		mu.Lock()
+		progressiveResults = append(progressiveResults, result.Arguments[0].(int))
+		mu.Unlock()
+	}
+
+	sendProgDataCb, err := caller.CallProgressive(ctx, procName, nil, callArgs[0:1], nil, finalRescb, progRescb)
+	if err != nil {
+		t.Fatal("Failed to call procedure:", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	for _, arg := range callArgs[1:9] {
+		err := sendProgDataCb(nil, wamp.List{arg}, nil, false)
+		if err != nil {
+			t.Fatal("Failed to call procedure:", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	err = sendProgDataCb(nil, callArgs[9:], nil, true)
 	if err != nil {
 		t.Fatal("Failed to call procedure:", err)
 	}

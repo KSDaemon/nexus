@@ -820,13 +820,16 @@ func (c *Client) CallProgressive(ctx context.Context, procedure string, options 
 
 	options[wamp.OptProgress] = true
 
+	receiveProgress := false
+
 	// If caller is willing to receive progressive results, create a channel to
 	// receive these on.  Then, start a goroutine to receive progressive
 	// results and call the callback for each.
 	var progChan chan *wamp.Result
 	var progDone chan struct{}
 	if progcb != nil {
-		options[wamp.OptReceiveProgress] = true
+		receiveProgress = true
+		options[wamp.OptReceiveProgress] = receiveProgress
 		progChan = make(chan *wamp.Result)
 		progDone = make(chan struct{})
 		go func() {
@@ -886,13 +889,10 @@ func (c *Client) CallProgressive(ctx context.Context, procedure string, options 
 			}
 
 			finalrescb(msg, nil)
-			return
 		case *wamp.Error:
 			finalrescb(nil, RPCError{msg, procedure})
-			return
 		default:
 			finalrescb(nil, unexpectedMsgError(msg, wamp.RESULT))
-			return
 		}
 	}()
 
@@ -903,6 +903,7 @@ func (c *Client) CallProgressive(ctx context.Context, procedure string, options 
 		}
 
 		options[wamp.OptProgress] = !isLast
+		options[wamp.OptReceiveProgress] = receiveProgress
 
 		message := &wamp.Call{
 			Request:   id,
