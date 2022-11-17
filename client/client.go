@@ -902,7 +902,7 @@ func (c *Client) CallProgressive(ctx context.Context, procedure string, options 
 			options = wamp.Dict{}
 		}
 
-		options[wamp.OptProgress] = isLast
+		options[wamp.OptProgress] = !isLast
 
 		message := &wamp.Call{
 			Request:   id,
@@ -1608,6 +1608,9 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 			// handler canceled the call.
 			if result.Err == wamp.ErrCanceled {
 				c.log.Println("INVOCATION", reqID, "canceled by callee")
+			} else if result.Err == wamp.InternalProgressiveOmitResult {
+				c.log.Println("Call in progress, nothing to YIELD, skipping")
+				return
 			}
 		case <-c.Done():
 			c.log.Print("Client stopping, invocation handler canceled")
