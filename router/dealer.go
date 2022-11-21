@@ -648,7 +648,7 @@ func (d *dealer) syncCall(caller *wamp.Session, msg *wamp.Call) {
 
 	// If it is a simple one-time call or first call of progressive call
 	// then we need to init call-invocation-runtime
-	// otherwise we must reuse runtime-data. E.g. not to generate new id
+	// otherwise we must reuse runtime-data. E.g. not to generate new ID
 	if !ok {
 		// If there are multiple callees, then select a callee based invocation
 		// policy.

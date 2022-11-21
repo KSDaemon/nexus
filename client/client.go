@@ -653,12 +653,9 @@ func (c *Client) Unregister(procedure string) error {
 // handle progressive results while Call is waiting for a final response.
 type ProgressHandler func(*wamp.Result)
 
-// ResultHandler is a type of function that is registered to asynchronously
-// handle final call results. In case of call fail - error will be filled
-type ResultHandler func(*wamp.Result, error)
-
 // SendProgressiveData is a callback function for feeding a progressive call data
-type SendProgressiveData func(options wamp.Dict, args wamp.List, kwargs wamp.Dict, isLast bool) error
+// This function is called by the client to retrieve payload from business side
+type SendProgressiveData func(ctx context.Context) (options wamp.Dict, args wamp.List, kwargs wamp.Dict, err error)
 
 // Call calls the procedure corresponding to the given URI.
 //
@@ -756,7 +753,6 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 	}
 
 	err := c.prepareCallPayloadMessage(message, options, args, kwargs)
-
 	if err != nil {
 		return nil, err
 	}
@@ -797,15 +793,16 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 // CallProgressive makes progressive calls to the procedure corresponding to
 // the given URI.
 //
-// @see full description for Call method above. The only difference is that this
-// method returns a callback that client code may call to pass a progressive chunks
-// of data to the Callee. Also, please note that all progressive results (if they
-// will be at all) will be returned using progcb callback and the final result will be
-// returned using finalrescb callback
+// This method prepares for making a call, the payload itself (even first one) is received
+// through calling the sendProg SendProgressiveData callback.
+// Do not forget to set `options[wamp.OptProgress] = true` for intermediate data chunks.
+// `options[wamp.OptProgress]` must be set to false for the last portion of data so
+// it will be treated as finishing the progressive call from the Caller side and no more
+// data will be sent to Callee.
 //
-// This function returns a callback function that should be called with payload data chunks
-// To finish a progressive call the last callback MUST be called with isLast = true
-func (c *Client) CallProgressive(ctx context.Context, procedure string, options wamp.Dict, args wamp.List, kwargs wamp.Dict, finalrescb ResultHandler, progcb ProgressHandler) (SendProgressiveData, error) { //nolint:lll
+// progcb ProgressHandler is the same as in Call method.
+// @see more info in Call method
+func (c *Client) CallProgressive(ctx context.Context, procedure string, sendProg SendProgressiveData, progcb ProgressHandler) (*wamp.Result, error) { //nolint:lll
 	if !c.Connected() {
 		return nil, ErrNotConn
 	}
@@ -814,11 +811,15 @@ func (c *Client) CallProgressive(ctx context.Context, procedure string, options 
 		return nil, ErrProgCallNotSupportedByRouter
 	}
 
+	// Let's receive first payload to start actual call
+	options, args, kwargs, err := sendProg(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	if options == nil {
 		options = wamp.Dict{}
 	}
-
-	options[wamp.OptProgress] = true
 
 	receiveProgress := false
 
@@ -829,7 +830,7 @@ func (c *Client) CallProgressive(ctx context.Context, procedure string, options 
 	var progDone chan struct{}
 	if progcb != nil {
 		receiveProgress = true
-		options[wamp.OptReceiveProgress] = receiveProgress
+		options[wamp.OptReceiveProgress] = true
 		progChan = make(chan *wamp.Result)
 		progDone = make(chan struct{})
 		go func() {
@@ -840,10 +841,6 @@ func (c *Client) CallProgressive(ctx context.Context, procedure string, options 
 		}()
 	}
 
-	if finalrescb == nil {
-		return nil, errors.New("no result handler provided")
-	}
-
 	id := c.idGen.Next()
 	c.expectReply(id)
 	message := &wamp.Call{
@@ -852,75 +849,92 @@ func (c *Client) CallProgressive(ctx context.Context, procedure string, options 
 		Options:   options,
 	}
 
-	err := c.prepareCallPayloadMessage(message, options, args, kwargs)
-
+	err = c.prepareCallPayloadMessage(message, options, args, kwargs)
 	if err != nil {
 		return nil, err
 	}
 
 	c.sess.Send(message)
 
-	// As we can not wait for final result and must return control to the client code
-	// we wait for result in goroutine
-	go func() {
-		// Wait to receive RESULT message.
-		msg, err := c.waitForReplyWithCancel(ctx, id, procedure, progChan)
+	callInProgress, ok := options[wamp.OptProgress].(bool)
 
-		// Finish handling any remaining progressive results before returning the
-		// final result.
-		if progcb != nil {
-			close(progChan)
-			<-progDone
-		}
-
-		if err != nil {
-			finalrescb(nil, err)
-			return
-		}
-
-		switch msg := msg.(type) {
-		case *wamp.Result:
-
-			err := c.prepareCallResultMessage(msg)
-
-			if err != nil {
-				finalrescb(nil, err)
-				return
-			}
-
-			finalrescb(msg, nil)
-		case *wamp.Error:
-			finalrescb(nil, RPCError{msg, procedure})
-		default:
-			finalrescb(nil, unexpectedMsgError(msg, wamp.RESULT))
-		}
-	}()
-
-	// now we need to return callback for feeding the progressive data
-	sendProgressiveData := func(options wamp.Dict, args wamp.List, kwargs wamp.Dict, isLast bool) error {
-		if options == nil {
-			options = wamp.Dict{}
-		}
-
-		options[wamp.OptProgress] = !isLast
-		options[wamp.OptReceiveProgress] = receiveProgress
-
-		message := &wamp.Call{
-			Request:   id,
-			Procedure: wamp.URI(procedure),
-			Options:   options,
-		}
-
-		if err := c.prepareCallPayloadMessage(message, options, args, kwargs); err != nil {
-			return err
-		}
-
-		c.sess.Send(message)
-
-		return nil
+	if !ok {
+		callInProgress = false
 	}
 
-	return sendProgressiveData, nil
+	if callInProgress {
+		// So client marked first payload as progressive, so we
+		// start pulling next chunks of input data from the client
+		go func() {
+			for callInProgress {
+				options, args, kwargs, err = sendProg(ctx)
+
+				if err != nil {
+					c.sess.Send(&wamp.Cancel{
+						Request: id,
+						Options: wamp.SetOption(nil, wamp.OptMode, wamp.CancelModeKillNoWait),
+					})
+					return
+				}
+
+				if options == nil {
+					options = wamp.Dict{}
+				}
+
+				if !options[wamp.OptProgress].(bool) {
+					callInProgress = false
+				}
+
+				options[wamp.OptReceiveProgress] = receiveProgress
+
+				message := &wamp.Call{
+					Request:   id,
+					Procedure: wamp.URI(procedure),
+					Options:   options,
+				}
+
+				if err := c.prepareCallPayloadMessage(message, options, args, kwargs); err != nil {
+					c.sess.Send(&wamp.Cancel{
+						Request: id,
+						Options: wamp.SetOption(nil, wamp.OptMode, wamp.CancelModeKillNoWait),
+					})
+					return
+				}
+
+				c.sess.Send(message)
+			}
+		}()
+	}
+
+	// Wait to receive RESULT message.
+	msg, err := c.waitForReplyWithCancel(ctx, id, procedure, progChan)
+
+	// Finish handling any remaining progressive results before returning the
+	// final result.
+	if progcb != nil {
+		close(progChan)
+		<-progDone
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	switch msg := msg.(type) {
+	case *wamp.Result:
+
+		err := c.prepareCallResultMessage(msg)
+
+		if err != nil {
+			return nil, err
+		}
+
+		return msg, nil
+	case *wamp.Error:
+		return nil, RPCError{msg, procedure}
+	default:
+		return nil, unexpectedMsgError(msg, wamp.RESULT)
+	}
 }
 
 // SetCallCancelMode sets the client's call cancel mode to one of the

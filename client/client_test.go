@@ -823,44 +823,36 @@ func TestProgressiveCalls(t *testing.T) {
 	callArgs := wamp.List{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 	ctx := context.Background()
 
-	waitChan := make(chan interface{})
+	callSends := 0
+	sendProgDataCb := func(ctx context.Context) (options wamp.Dict, args wamp.List, kwargs wamp.Dict, err error) {
+		options = wamp.Dict{}
 
-	finalRescb := func(result *wamp.Result, err error) {
-		waitChan <- nil
-		if err != nil {
-			t.Fatal("Failed to call procedure:", err)
+		if callSends == (len(callArgs) - 1) {
+			options[wamp.OptProgress] = false
+		} else {
+			options[wamp.OptProgress] = true
 		}
-		sum, ok := wamp.AsInt64(result.Arguments[0])
-		if !ok {
-			t.Fatal("Could not convert result to int64:", result.Arguments[0])
-		}
-		if sum != 55 {
-			t.Fatal("Wrong result:", sum)
-		}
-	}
 
-	sendProgDataCb, err := caller.CallProgressive(ctx, procName, nil, callArgs[0:1], nil, finalRescb, nil)
-	if err != nil {
-		t.Fatal("Failed to call procedure:", err)
-	}
-	time.Sleep(100 * time.Millisecond)
+		args = wamp.List{callArgs[callSends]}
+		callSends++
 
-	for _, arg := range callArgs[1:9] {
-		err := sendProgDataCb(nil, wamp.List{arg}, nil, false)
-		if err != nil {
-			t.Fatal("Failed to call procedure:", err)
-		}
 		time.Sleep(100 * time.Millisecond)
+		return options, args, nil, nil
 	}
 
-	err = sendProgDataCb(nil, callArgs[9:], nil, true)
+	result, err := caller.CallProgressive(ctx, procName, sendProgDataCb, nil)
 	if err != nil {
 		t.Fatal("Failed to call procedure:", err)
 	}
-
-	select {
-	case <-waitChan:
-	case <-time.After(1000 * time.Millisecond):
+	sum, ok := wamp.AsInt64(result.Arguments[0])
+	if !ok {
+		t.Fatal("Could not convert result to int64:", result.Arguments[0])
+	}
+	if sum != 55 {
+		t.Fatal("Wrong result:", sum)
+	}
+	if callSends != 10 {
+		t.Fatal("Expected callSends == 10")
 	}
 
 	// Test unregister.
@@ -907,31 +899,8 @@ func TestProgressiveCallsAndResults(t *testing.T) {
 	callArgs := wamp.List{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 	ctx := context.Background()
 
-	waitChan := make(chan interface{})
-
 	var progressiveResults []int
 	var mu sync.Mutex
-
-	finalRescb := func(result *wamp.Result, err error) {
-		waitChan <- nil
-		if err != nil {
-			t.Fatal("Failed to call procedure:", err)
-		}
-
-		progressiveResults = append(progressiveResults, result.Arguments[0].(int))
-
-		var sum int64
-		for _, arg := range progressiveResults {
-			n, ok := wamp.AsInt64(arg)
-			if ok {
-				sum += n
-			}
-		}
-
-		if sum != 55 {
-			t.Fatal("Wrong result:", sum)
-		}
-	}
 
 	progRescb := func(result *wamp.Result) {
 		mu.Lock()
@@ -939,28 +908,40 @@ func TestProgressiveCallsAndResults(t *testing.T) {
 		mu.Unlock()
 	}
 
-	sendProgDataCb, err := caller.CallProgressive(ctx, procName, nil, callArgs[0:1], nil, finalRescb, progRescb)
-	if err != nil {
-		t.Fatal("Failed to call procedure:", err)
-	}
-	time.Sleep(100 * time.Millisecond)
+	callSends := 0
+	sendProgDataCb := func(ctx context.Context) (options wamp.Dict, args wamp.List, kwargs wamp.Dict, err error) {
+		options = wamp.Dict{}
 
-	for _, arg := range callArgs[1:9] {
-		err := sendProgDataCb(nil, wamp.List{arg}, nil, false)
-		if err != nil {
-			t.Fatal("Failed to call procedure:", err)
+		if callSends == (len(callArgs) - 1) {
+			options[wamp.OptProgress] = false
+		} else {
+			options[wamp.OptProgress] = true
 		}
+
+		args = wamp.List{callArgs[callSends]}
+		callSends++
+
 		time.Sleep(100 * time.Millisecond)
+		return options, args, nil, nil
 	}
 
-	err = sendProgDataCb(nil, callArgs[9:], nil, true)
+	result, err := caller.CallProgressive(ctx, procName, sendProgDataCb, progRescb)
 	if err != nil {
 		t.Fatal("Failed to call procedure:", err)
 	}
-
-	select {
-	case <-waitChan:
-	case <-time.After(1000 * time.Millisecond):
+	progressiveResults = append(progressiveResults, result.Arguments[0].(int))
+	var sum int64
+	for _, arg := range progressiveResults {
+		n, ok := wamp.AsInt64(arg)
+		if ok {
+			sum += n
+		}
+	}
+	if sum != 55 {
+		t.Fatal("Wrong result:", sum)
+	}
+	if callSends != 10 {
+		t.Fatal("Expected callSends == 10")
 	}
 
 	// Test unregister.
