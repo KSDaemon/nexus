@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -820,7 +821,7 @@ func TestProgressiveCalls(t *testing.T) {
 	}
 
 	// Test calling the procedure.
-	callArgs := wamp.List{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	callArgs := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 	ctx := context.Background()
 
 	callSends := 0
@@ -853,6 +854,9 @@ func TestProgressiveCalls(t *testing.T) {
 	}
 	if callSends != 10 {
 		t.Fatal("Expected callSends == 10")
+	}
+	if !reflect.DeepEqual(callArgs, progressiveIncPayload) {
+		t.Fatal("Progressive data should be processed sequentially")
 	}
 
 	// Test unregister.
@@ -896,7 +900,7 @@ func TestProgressiveCallsAndResults(t *testing.T) {
 	}
 
 	// Test calling the procedure.
-	callArgs := wamp.List{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	callArgs := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 	ctx := context.Background()
 
 	var progressiveResults []int
@@ -904,8 +908,8 @@ func TestProgressiveCallsAndResults(t *testing.T) {
 
 	progRescb := func(result *wamp.Result) {
 		mu.Lock()
+		defer mu.Unlock()
 		progressiveResults = append(progressiveResults, result.Arguments[0].(int))
-		mu.Unlock()
 	}
 
 	callSends := 0
@@ -942,6 +946,9 @@ func TestProgressiveCallsAndResults(t *testing.T) {
 	}
 	if callSends != 10 {
 		t.Fatal("Expected callSends == 10")
+	}
+	if !reflect.DeepEqual(callArgs, progressiveResults) {
+		t.Fatal("Progressive data should be processed sequentially")
 	}
 
 	// Test unregister.

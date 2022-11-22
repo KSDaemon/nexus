@@ -653,8 +653,11 @@ func (c *Client) Unregister(procedure string) error {
 // handle progressive results while Call is waiting for a final response.
 type ProgressHandler func(*wamp.Result)
 
-// SendProgressiveData is a callback function for feeding a progressive call data
-// This function is called by the client to retrieve payload from business side
+// SendProgressiveData is a callback function for feeding a progressive call data.
+// This function is called by the client to retrieve payload from business side.
+// The returned options indicate whether the data chunk returned by the callback is final,
+// in which case the wamp.OptProgress option is false or unset, or intermediate with more
+// data to come, in which case wamp.OptProgress option must be set to true.
 type SendProgressiveData func(ctx context.Context) (options wamp.Dict, args wamp.List, kwargs wamp.Dict, err error)
 
 // Call calls the procedure corresponding to the given URI.
@@ -775,9 +778,7 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 
 	switch msg := msg.(type) {
 	case *wamp.Result:
-
 		err := c.prepareCallResultMessage(msg)
-
 		if err != nil {
 			return nil, err
 		}
@@ -790,15 +791,13 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 	}
 }
 
-// CallProgressive makes progressive calls to the procedure corresponding to
+// CallProgressive makes a progressive call to the procedure corresponding to
 // the given URI.
 //
 // This method prepares for making a call, the payload itself (even first one) is received
 // through calling the sendProg SendProgressiveData callback.
-// Do not forget to set `options[wamp.OptProgress] = true` for intermediate data chunks.
-// `options[wamp.OptProgress]` must be set to false for the last portion of data so
-// it will be treated as finishing the progressive call from the Caller side and no more
-// data will be sent to Callee.
+// See the documentation of SenProgressiveData for more details about feeding the data
+// to a progressive call.
 //
 // progcb ProgressHandler is the same as in Call method.
 // @see more info in Call method
@@ -856,11 +855,7 @@ func (c *Client) CallProgressive(ctx context.Context, procedure string, sendProg
 
 	c.sess.Send(message)
 
-	callInProgress, ok := options[wamp.OptProgress].(bool)
-
-	if !ok {
-		callInProgress = false
-	}
+	callInProgress, _ := options[wamp.OptProgress].(bool)
 
 	if callInProgress {
 		// So client marked first payload as progressive, so we
@@ -881,9 +876,7 @@ func (c *Client) CallProgressive(ctx context.Context, procedure string, sendProg
 					options = wamp.Dict{}
 				}
 
-				if !options[wamp.OptProgress].(bool) {
-					callInProgress = false
-				}
+				callInProgress, _ = options[wamp.OptProgress].(bool)
 
 				options[wamp.OptReceiveProgress] = receiveProgress
 
