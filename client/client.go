@@ -32,6 +32,11 @@ const (
 var E2eeSerializers = map[string]serialize.Serialization{"cbor": CBOR}
 var PPTSerializers = map[string]serialize.Serialization{"json": JSON, "msgpack": MSGPACK, "cbor": CBOR}
 
+type clientInvocation struct {
+	registration wamp.ID
+	request      wamp.ID
+}
+
 // A Client routes messages to/from a WAMP router.
 type Client struct {
 	sess *wamp.Session
@@ -43,10 +48,12 @@ type Client struct {
 	eventHandlers map[wamp.ID]EventHandler
 	topicSubID    map[string]wamp.ID
 
-	invHandlers    map[wamp.ID]InvocationHandler
-	nameProcID     map[string]wamp.ID
-	invHandlerKill map[wamp.ID]context.CancelFunc
-	progGate       map[context.Context]wamp.ID
+	invHandlers       map[wamp.ID]InvocationHandler
+	invHandlersQueues map[clientInvocation]chan *wamp.Invocation
+	invHandlersCtxs   map[clientInvocation]context.Context
+	nameProcID        map[string]wamp.ID
+	invHandlerKill    map[wamp.ID]context.CancelFunc
+	progGate          map[context.Context]wamp.ID
 
 	activeInvHandlers sync.WaitGroup
 
@@ -237,10 +244,12 @@ func NewClient(p wamp.Peer, cfg Config) (*Client, error) {
 		eventHandlers: map[wamp.ID]EventHandler{},
 		topicSubID:    map[string]wamp.ID{},
 
-		invHandlers:    map[wamp.ID]InvocationHandler{},
-		nameProcID:     map[string]wamp.ID{},
-		invHandlerKill: map[wamp.ID]context.CancelFunc{},
-		progGate:       map[context.Context]wamp.ID{},
+		invHandlers:       map[wamp.ID]InvocationHandler{},
+		invHandlersQueues: map[clientInvocation]chan *wamp.Invocation{},
+		invHandlersCtxs:   map[clientInvocation]context.Context{},
+		nameProcID:        map[string]wamp.ID{},
+		invHandlerKill:    map[wamp.ID]context.CancelFunc{},
+		progGate:          map[context.Context]wamp.ID{},
 
 		log:        cfg.Logger,
 		debug:      cfg.Debug,
@@ -1492,6 +1501,7 @@ func (c *Client) runHandleEvent(msg *wamp.Event) {
 // runHandleInvocation processes an INVOCATION message from the router
 // requesting a call to a registered RPC procedure.
 func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
+	var cancel context.CancelFunc
 	timeout, _ := wamp.AsInt64(msg.Details[wamp.OptTimeout])
 	progResOK, _ := msg.Details[wamp.OptReceiveProgress].(bool)
 	reqID := msg.Request
@@ -1562,169 +1572,206 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 		msg.ArgumentsKw = kwargs
 	}
 
-	// Create a kill switch so that invocation can be canceled.
-	var cancel context.CancelFunc
-	var ctx context.Context
-	if timeout > 0 {
-		// The caller specified a timeout, in milliseconds.
-		ctx, cancel = context.WithTimeout(context.Background(),
-			time.Millisecond*time.Duration(timeout))
-	} else {
-		ctx, cancel = context.WithCancel(context.Background())
+	cliInvocation := clientInvocation{
+		registration: msg.Registration,
+		request:      msg.Request,
 	}
-	c.invHandlerKill[reqID] = cancel
-	c.activeInvHandlers.Add(1)
+	handlerQueue, queueExists := c.invHandlersQueues[cliInvocation]
+	ctx, _ := c.invHandlersCtxs[cliInvocation]
+	if !queueExists {
+		handlerQueue = make(chan *wamp.Invocation, 1)
+		c.invHandlersQueues[cliInvocation] = handlerQueue
 
-	// If caller is accepting progressive results, create map entry to allow
-	// progress to be sent.
-	if progResOK {
-		c.progGate[ctx] = reqID
+		// Create a kill switch so that invocation can be canceled.
+		if timeout > 0 {
+			// The caller specified a timeout, in milliseconds.
+			ctx, cancel = context.WithTimeout(context.Background(),
+				time.Millisecond*time.Duration(timeout))
+		} else {
+			ctx, cancel = context.WithCancel(context.Background())
+		}
+		c.invHandlersCtxs[cliInvocation] = ctx
+		c.invHandlerKill[reqID] = cancel
+		c.activeInvHandlers.Add(1)
+
+		// If caller is accepting progressive results, create map entry to allow
+		// progress to be sent.
+		if progResOK {
+			c.progGate[ctx] = reqID
+		}
 	}
+
+	handlerQueue <- msg
+
 	c.sess.Unlock()
 
-	// Start a goroutine to run the user-defined invocation handler.
-	go func() {
-		defer cancel()
-
-		// Create channel to hold result.  Channel must be buffered.
-		// Otherwise, canceling the call will leak the goroutine that is
-		// blocked forever waiting to send the result to the channel.
-		resChan := make(chan InvokeResult, 1)
+	if !queueExists {
+		// Start a goroutine to run the user-defined invocation handler.
 		go func() {
-			// The Context is passed into the handler to tell the client
-			// application to stop whatever it is doing if it cares to pay
-			// attention.
-			resChan <- handler(ctx, msg)
-		}()
+			defer cancel()
 
-		// Remove the kill switch when done processing invocation.
-		defer func() {
-			c.sess.Lock()
-			delete(c.progGate, ctx)
-			delete(c.invHandlerKill, reqID)
-			c.sess.Unlock()
-			c.activeInvHandlers.Done()
-		}()
+			// Create channel to hold result.  Channel must be buffered.
+			// Otherwise, canceling the call will leak the goroutine that is
+			// blocked forever waiting to send the result to the channel.
+			resChan := make(chan InvokeResult, 1)
+			go func() {
+				for msg := range handlerQueue {
 
-		// Wait for the handler to finish or for the call be to canceled.
-		var result InvokeResult
-		select {
-		case result = <-resChan:
-			// If the handler returns InvocationCanceled, this means the
-			// handler canceled the call.
-			if result.Err == wamp.ErrCanceled {
-				c.log.Println("INVOCATION", reqID, "canceled by callee")
-			} else if result.Err == wamp.InternalProgressiveOmitResult {
-				c.log.Println("Call in progress, nothing to YIELD, skipping")
-				return
-			}
-		case <-c.Done():
-			c.log.Print("Client stopping, invocation handler canceled")
-			// Return without sending response to server.  This will also
-			// cancel the context.
-			return
-		case <-ctx.Done():
-			// Received an INTERRUPT message from the router.
-			// Note: handler is also just as likely to return on INTERRUPT.
-			result = InvokeResult{Err: wamp.ErrCanceled}
-			var reason string
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				reason = "callee due to timeout"
-			} else {
-				reason = "router"
-			}
-			c.log.Println("INVOCATION", reqID, "canceled by", reason)
-		}
+					if isInProgress, _ := msg.Details[wamp.OptProgress].(bool); !isInProgress {
+						c.sess.Lock()
+						close(c.invHandlersQueues[cliInvocation])
+						delete(c.invHandlersQueues, cliInvocation)
+						delete(c.invHandlersCtxs, cliInvocation)
+						c.sess.Unlock()
+					}
 
-		if result.Err != "" {
-			c.sess.SendCtx(c.ctx, &wamp.Error{
-				Type:        wamp.INVOCATION,
-				Request:     reqID,
-				Details:     wamp.Dict{},
-				Arguments:   result.Args,
-				ArgumentsKw: result.Kwargs,
-				Error:       result.Err,
-			})
-			return
-		}
-
-		options := result.Options
-
-		if options == nil {
-			options = wamp.Dict{}
-		}
-
-		message := &wamp.Yield{
-			Request: reqID,
-			Options: options,
-		}
-
-		// Check and handle Payload PassThru Mode
-		// @see https://wamp-proto.org/wamp_latest_ietf.html#name-payload-passthru-mode
-		if pptScheme, _ := options[wamp.OptPPTScheme].(string); pptScheme != "" {
-			// Let's check: was ppt feature announced by dealer?
-			if !c.sess.HasFeature(wamp.RoleDealer, wamp.FeaturePayloadPassthruMode) {
-				// It's protocol violation, so we need to abort connection
-				abortMsg := wamp.Abort{
-					Reason: wamp.ErrProtocolViolation,
-					Details: wamp.Dict{
-						wamp.OptError:   ErrPPTNotSupportedByRouter.Error(),
-						wamp.OptMessage: ErrPPTNotSupportedByPeer.Error(),
-					},
+					// The Context is passed into the handler to tell the client
+					// application to stop whatever it is doing if it cares to pay
+					// attention.
+					resChan <- handler(ctx, msg)
 				}
-				c.sess.Peer.Send(&abortMsg)
-				c.sess.Peer.Close()
-				return
+			}()
+
+			// Remove the kill switch when done processing invocation.
+			defer func() {
+				c.sess.Lock()
+				delete(c.progGate, ctx)
+				delete(c.invHandlerKill, reqID)
+				c.sess.Unlock()
+				c.activeInvHandlers.Done()
+			}()
+
+			// Wait for the handler to finish or for the call to be canceled.
+			var result InvokeResult
+			isProcessing := true
+			for isProcessing {
+				select {
+				case result = <-resChan:
+					// If the handler returns InvocationCanceled, this means the
+					// handler canceled the call.
+					if result.Err == wamp.ErrCanceled {
+						c.log.Println("INVOCATION", reqID, "canceled by callee")
+						isProcessing = false
+						break
+					} else if result.Err == wamp.InternalProgressiveOmitResult {
+						c.log.Println("Call in progress, nothing to YIELD, skipping")
+						break
+					} else {
+						c.log.Println("Received final result")
+						isProcessing = false
+						break
+					}
+				case <-c.Done():
+					c.log.Print("Client stopping, invocation handler canceled")
+					// Return without sending response to server.  This will also
+					// cancel the context.
+					return
+				case <-ctx.Done():
+					// Received an INTERRUPT message from the router.
+					// Note: handler is also just as likely to return on INTERRUPT.
+					result = InvokeResult{Err: wamp.ErrCanceled}
+					var reason string
+					if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+						reason = "callee due to timeout"
+					} else {
+						reason = "router"
+					}
+					c.log.Println("INVOCATION", reqID, "canceled by", reason)
+					isProcessing = false
+					break
+				}
 			}
 
-			if !isPPTSchemeValid(pptScheme) {
+			if result.Err != "" {
 				c.sess.SendCtx(c.ctx, &wamp.Error{
-					Type:    wamp.INVOCATION,
-					Request: reqID,
-					Details: wamp.Dict{
-						"error": ErrPPTSchemeInvalid.Error(),
-					},
+					Type:        wamp.INVOCATION,
+					Request:     reqID,
+					Details:     wamp.Dict{},
 					Arguments:   result.Args,
 					ArgumentsKw: result.Kwargs,
-					Error:       wamp.ErrInvalidArgument,
+					Error:       result.Err,
 				})
 				return
 			}
 
-			// Dealer supports PPT feature
-			// Let's prepare payload based on ppt_* attributes provided
-			var payload wamp.List
-			var err error
+			options := result.Options
 
-			if pptScheme == WampPPTScheme {
-				payload, err = packE2EEPayload(options, result.Args, result.Kwargs)
+			if options == nil {
+				options = wamp.Dict{}
+			}
+
+			message := &wamp.Yield{
+				Request: reqID,
+				Options: options,
+			}
+
+			// Check and handle Payload PassThru Mode
+			// @see https://wamp-proto.org/wamp_latest_ietf.html#name-payload-passthru-mode
+			if pptScheme, _ := options[wamp.OptPPTScheme].(string); pptScheme != "" {
+				// Let's check: was ppt feature announced by dealer?
+				if !c.sess.HasFeature(wamp.RoleDealer, wamp.FeaturePayloadPassthruMode) {
+					// It's protocol violation, so we need to abort connection
+					abortMsg := wamp.Abort{
+						Reason: wamp.ErrProtocolViolation,
+						Details: wamp.Dict{
+							wamp.OptError:   ErrPPTNotSupportedByRouter.Error(),
+							wamp.OptMessage: ErrPPTNotSupportedByPeer.Error(),
+						},
+					}
+					c.sess.Peer.Send(&abortMsg)
+					c.sess.Peer.Close()
+					return
+				}
+
+				if !isPPTSchemeValid(pptScheme) {
+					c.sess.SendCtx(c.ctx, &wamp.Error{
+						Type:    wamp.INVOCATION,
+						Request: reqID,
+						Details: wamp.Dict{
+							"error": ErrPPTSchemeInvalid.Error(),
+						},
+						Arguments:   result.Args,
+						ArgumentsKw: result.Kwargs,
+						Error:       wamp.ErrInvalidArgument,
+					})
+					return
+				}
+
+				// Dealer supports PPT feature
+				// Let's prepare payload based on ppt_* attributes provided
+				var payload wamp.List
+				var err error
+
+				if pptScheme == WampPPTScheme {
+					payload, err = packE2EEPayload(options, result.Args, result.Kwargs)
+				} else {
+					payload, err = packPPTPayload(options, result.Args, result.Kwargs)
+				}
+
+				if err != nil {
+					c.sess.SendCtx(c.ctx, &wamp.Error{
+						Type:    wamp.INVOCATION,
+						Request: reqID,
+						Details: wamp.Dict{
+							"error": err.Error(),
+						},
+						Arguments:   result.Args,
+						ArgumentsKw: result.Kwargs,
+						Error:       wamp.ErrInvalidArgument,
+					})
+					return
+				}
+
+				message.Arguments = payload
+
 			} else {
-				payload, err = packPPTPayload(options, result.Args, result.Kwargs)
+				message.Arguments = result.Args
+				message.ArgumentsKw = result.Kwargs
 			}
 
-			if err != nil {
-				c.sess.SendCtx(c.ctx, &wamp.Error{
-					Type:    wamp.INVOCATION,
-					Request: reqID,
-					Details: wamp.Dict{
-						"error": err.Error(),
-					},
-					Arguments:   result.Args,
-					ArgumentsKw: result.Kwargs,
-					Error:       wamp.ErrInvalidArgument,
-				})
-				return
-			}
-
-			message.Arguments = payload
-
-		} else {
-			message.Arguments = result.Args
-			message.ArgumentsKw = result.Kwargs
-		}
-
-		c.sess.SendCtx(c.ctx, message)
-	}()
+			c.sess.SendCtx(c.ctx, message)
+		}()
+	}
 }
 
 // runHandleInterrupt processes an INTERRUPT message from the router,
