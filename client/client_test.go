@@ -924,7 +924,6 @@ func TestProgressiveCallsAndResults(t *testing.T) {
 		args = wamp.List{callArgs[callSends]}
 		callSends++
 
-		time.Sleep(100 * time.Millisecond)
 		return options, args, nil, nil
 	}
 

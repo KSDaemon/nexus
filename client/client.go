@@ -1601,9 +1601,9 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 		}
 	}
 
-	handlerQueue <- msg
-
 	c.sess.Unlock()
+
+	handlerQueue <- msg
 
 	if !queueExists {
 		// Start a goroutine to run the user-defined invocation handler.
