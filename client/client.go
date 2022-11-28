@@ -1577,7 +1577,7 @@ func (c *Client) runHandleInvocation(msg *wamp.Invocation) {
 		request:      msg.Request,
 	}
 	handlerQueue, queueExists := c.invHandlersQueues[cliInvocation]
-	ctx, _ := c.invHandlersCtxs[cliInvocation]
+	ctx := c.invHandlersCtxs[cliInvocation]
 	if !queueExists {
 		handlerQueue = make(chan *wamp.Invocation, 1)
 		c.invHandlersQueues[cliInvocation] = handlerQueue
