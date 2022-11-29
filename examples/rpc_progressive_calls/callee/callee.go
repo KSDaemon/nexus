@@ -65,7 +65,7 @@ func sum(ctx context.Context, inv *wamp.Invocation) client.InvokeResult {
 			}
 		}
 		// Let's clean up data as call is finished
-		progressiveIncPayload = progressiveIncPayload[0:0]
+		progressiveIncPayload = nil
 		return client.InvokeResult{Args: wamp.List{sum}}
 	}
 
