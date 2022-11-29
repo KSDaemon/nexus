@@ -133,7 +133,10 @@ dealer feature. Check and run examples in [rpc_progressive_calls](./rpc_progress
 
 Please note that invocation handler is invoked with payload chunks in the same order they are received through the wire
 even that it is running asynchronously. Also `ctx context.Context` parameter of invocation handler is the context of
-the whole invocation starting with 1st call/invocation and lasts until final result.
+the whole invocation starting with 1st call/invocation and lasts until final result. But if the client is
+specifying `timeout` option with every progressive call callback, then timeouted context is updated and
+cancel deadline is pushed forward in timeline. This can help processing progressive calls for slow clients.
+To use timeouted context for the whole call - do not specify `timeout` option within intermediate data chunks.
 
 1. Run the server with `go run server/server.go`
 2. Run the callee which accumulates progressive call data chunks with `go run rpc_progressive_calls/callee/callee.go`
