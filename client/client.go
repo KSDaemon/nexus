@@ -787,8 +787,14 @@ func (c *Client) Call(ctx context.Context, procedure string, options wamp.Dict, 
 
 	switch msg := msg.(type) {
 	case *wamp.Result:
-		err := c.prepareCallResultMessage(msg)
+		err, abortMsg := c.prepareCallResultMessage(msg)
+
 		if err != nil {
+			if abortMsg != nil {
+				c.sess.Peer.Send(abortMsg)
+				c.sess.Peer.Close()
+			}
+
 			return nil, err
 		}
 
@@ -925,9 +931,14 @@ func (c *Client) CallProgressive(ctx context.Context, procedure string, sendProg
 	switch msg := msg.(type) {
 	case *wamp.Result:
 
-		err := c.prepareCallResultMessage(msg)
+		err, abortMsg := c.prepareCallResultMessage(msg)
 
 		if err != nil {
+			if abortMsg != nil {
+				c.sess.Peer.Send(abortMsg)
+				c.sess.Peer.Close()
+			}
+
 			return nil, err
 		}
 
@@ -1860,7 +1871,7 @@ func (c *Client) prepareCallPayloadMessage(msg *wamp.Call, options wamp.Dict, ar
 	return nil
 }
 
-func (c *Client) prepareCallResultMessage(msg *wamp.Result) error {
+func (c *Client) prepareCallResultMessage(msg *wamp.Result) (error, *wamp.Abort) {
 	// Check and handle Payload PassThru Mode
 	// @see https://wamp-proto.org/wamp_latest_ietf.html#name-payload-passthru-mode
 	if pptScheme, _ := msg.Details[wamp.OptPPTScheme].(string); pptScheme != "" {
@@ -1874,13 +1885,11 @@ func (c *Client) prepareCallResultMessage(msg *wamp.Result) error {
 					wamp.OptMessage: ErrPPTNotSupportedByPeer.Error(),
 				},
 			}
-			c.sess.Peer.Send(&abortMsg)
-			c.sess.Peer.Close()
-			return fmt.Errorf("cannot process unexpected passthrough result: %w", ErrPPTNotSupportedByRouter)
+			return fmt.Errorf("cannot process unexpected passthrough result: %w", ErrPPTNotSupportedByRouter), &abortMsg
 		}
 
 		if !isPPTSchemeValid(pptScheme) {
-			return fmt.Errorf("cannot process result with invalid ppt scheme %q: %w", pptScheme, ErrPPTSchemeInvalid)
+			return fmt.Errorf("cannot process result with invalid ppt scheme %q: %w", pptScheme, ErrPPTSchemeInvalid), nil
 		}
 
 		var args wamp.List
@@ -1896,12 +1905,12 @@ func (c *Client) prepareCallResultMessage(msg *wamp.Result) error {
 		}
 
 		if err != nil {
-			return err
+			return err, nil
 		}
 
 		msg.Arguments = args
 		msg.ArgumentsKw = kwargs
 	}
 
-	return nil
+	return nil, nil
 }
